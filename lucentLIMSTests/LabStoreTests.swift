@@ -12,7 +12,7 @@ struct LabStoreTests {
     }()
 
     func makeStore(userName: String = "grindel") -> LabStore {
-        LabStore(now: Self.now, calendar: Self.calendar, userName: userName)
+        LabStore.demo(now: Self.now, calendar: Self.calendar, userName: userName)
     }
 
     @Test func mockDataIsDeterministic() {
@@ -35,50 +35,73 @@ struct LabStoreTests {
         #expect(makeStore(userName: "nobody").currentUser.unixAccount == "grindel")
     }
 
-    @Test func statusFollowsTheValues() throws {
+    @Test func statusFollowsTheValues() async throws {
         let store = makeStore()
-        let collection = store.registerCollection(matrixID: 10, classID: 1, spotID: 6, siteID: nil,
-                                                  sampledAt: Self.now, sampledByID: 26)
+        let collection = try await store.registerCollection(matrixID: 10, classID: 1, spotID: 6, siteID: nil,
+                                                            sampledAt: Self.now, sampledByID: 26)
         #expect(store.status(of: collection) == .registered)
 
         let planned = store.plannedVariables(for: collection)
         #expect(planned.count == 7)
 
-        store.record(.decimal(12.3), for: planned[0], in: collection.id)
+        try await store.record(.decimal(12.3), for: planned[0], in: collection.id)
         #expect(store.status(of: collection) == .inAnalysis)
         #expect(store.progress(of: collection) == (1, 7))
 
         for actionVariable in planned.dropFirst() {
-            store.record(.decimal(0), for: actionVariable, in: collection.id)
+            try await store.record(.decimal(0), for: actionVariable, in: collection.id)
         }
         #expect(store.status(of: collection) == .inReview)
-
-        store.acceptAll(in: [collection.id])
-        #expect(store.status(of: collection) == .approved)
-
-        let value = try #require(store.values(of: collection.id).first)
-        store.setAccepted(false, valueID: value.id, in: collection.id)
-        #expect(store.status(of: collection) == .inReview)
+        #expect(store.values(of: collection.id).allSatisfy { $0.personID == store.currentUser.id })
     }
 
-    @Test func registeringUsesTheNextIdentifier() {
+    @Test func nobodyAcceptsTheirOwnValues() async throws {
+        let store = makeStore()
+        let collection = try await store.registerCollection(matrixID: 10, classID: 1, spotID: 6, siteID: nil,
+                                                            sampledAt: Self.now, sampledByID: 26)
+        let pH = try #require(store.actionVariable(4))
+        try await store.record(.decimal(7.5), for: pH, in: collection.id)
+        await #expect(throws: LabServiceError.self) { try await store.acceptAll(in: [collection.id]) }
+        let value = try #require(store.values(of: collection.id).first)
+        await #expect(throws: LabServiceError.self) { try await store.setAccepted(true, value: value) }
+        #expect(store.values(of: collection.id).first?.accepted == false)
+    }
+
+    @Test func reviewingSomeoneElsesValues() async throws {
+        let store = makeStore()
+        let inReview = try #require(store.collections.first { store.status(of: $0) == .inReview })
+        try await store.acceptAll(in: [inReview.id])
+        #expect(store.status(of: inReview) == .approved)
+
+        let value = try #require(store.values(of: inReview.id).first)
+        try await store.setAccepted(false, value: value)
+        #expect(store.status(of: inReview) == .inReview)
+    }
+
+    @Test func registeringUsesTheNextIdentifier() async throws {
         let store = makeStore()
         let expected = store.nextIdentifier
-        let collection = store.registerCollection(matrixID: 8, classID: 2, spotID: 3, siteID: nil,
-                                                  sampledAt: Self.now, sampledByID: 27)
+        let collection = try await store.registerCollection(matrixID: 8, classID: 2, spotID: 3, siteID: nil,
+                                                            sampledAt: Self.now, sampledByID: 27)
         #expect(collection.name == expected)
         #expect(store.nextIdentifier == store.numbering.next(after: expected))
     }
 
-    @Test func recordingAgainAddsARepetition() throws {
+    @Test func recordingAgainAddsARepetition() async throws {
         let store = makeStore()
-        let collection = store.registerCollection(matrixID: 9, classID: 3, spotID: 4, siteID: nil,
-                                                  sampledAt: Self.now, sampledByID: 26)
+        let collection = try await store.registerCollection(matrixID: 9, classID: 3, spotID: 4, siteID: nil,
+                                                            sampledAt: Self.now, sampledByID: 26)
         let lead = try #require(store.actionVariable(9))
-        store.record(.decimal(12), for: lead, in: collection.id)
-        store.record(.decimal(11.5), for: lead, in: collection.id)
+        try await store.record(.decimal(12), for: lead, in: collection.id)
+        try await store.record(.decimal(11.5), for: lead, in: collection.id)
         #expect(store.values(of: collection.id, for: lead).map(\.repetition) == [1, 2])
         #expect(store.exceedances(of: collection.id).count == 2)
+    }
+
+    @Test func demoHasEveryRole() {
+        let store = makeStore()
+        #expect(LabRole.allCases.allSatisfy { store.can($0) })
+        #expect(store.isDemo)
     }
 
     @Test func limitsAreChecked() throws {

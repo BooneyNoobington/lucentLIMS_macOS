@@ -1,24 +1,63 @@
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(LabStore.self) private var store
+    @Environment(Connection.self) private var connection
     @State private var navigation = AppNavigation()
+    @State private var showsSettings = false
+
+    private var store: LabStore { connection.store }
 
     var body: some View {
         NavigationSplitView {
-            Sidebar(selection: $navigation.section)
+            Sidebar(selection: $navigation.section, showsSettings: $showsSettings)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 300)
         } detail: {
-            NavigationStack(path: $navigation.path) {
-                section(navigation.section ?? .dashboard)
-                    .navigationDestination(for: Route.self) { route in
-                        RouteView(route: route)
-                            .inlineNavigationTitle()
+            switch connection.state {
+            case .ready:
+                NavigationStack(path: $navigation.path) {
+                    section(navigation.section ?? .dashboard)
+                        .navigationDestination(for: Route.self) { route in
+                            RouteView(route: route)
+                                .inlineNavigationTitle()
+                        }
+                }
+                .id(navigation.section)
+            case .loading:
+                ProgressView("Loading from \(connection.summary)…")
+            case .needsSignIn:
+                SignInView()
+            case .failed(let message):
+                ContentUnavailableView {
+                    Label("Can't Load from \(connection.summary)", systemImage: "exclamationmark.icloud")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("Try Again") { Task { await connection.connect() } }
+                        .buttonStyle(.borderedProminent)
+                    Button("Use Demo Data") { connection.useDemoData() }
+                }
+            }
+        }
+        .environment(store)
+        .environment(navigation)
+        .alert("The change wasn't saved", isPresented: Binding(
+            get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })
+        ) {
+            Button("OK") {}
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showsSettings) {
+            NavigationStack {
+                ConnectionSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { showsSettings = false } }
                     }
             }
-            .id(navigation.section)
+            .environment(connection)
         }
-        .environment(navigation)
+        #endif
         .focusedSceneValue(\.navigation, navigation)
         .sheet(isPresented: $navigation.isPresentingNewCollection) {
             NewCollectionSheet(store: store)
@@ -66,7 +105,9 @@ struct RouteView: View {
 
 private struct Sidebar: View {
     @Environment(LabStore.self) private var store
+    @Environment(Connection.self) private var connection
     @Binding var selection: SidebarItem?
+    @Binding var showsSettings: Bool
 
     var body: some View {
         List(selection: $selection) {
@@ -93,11 +134,22 @@ private struct Sidebar: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(store.currentUser.fullName)
                         .font(.callout.weight(.medium))
-                    Text(store.currentUser.unixAccount)
-                        .font(.caption.monospaced())
+                    Label(connection.summary, systemImage: connection.isDemo ? "shippingbox" : "server.rack")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                #if os(macOS)
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.borderless)
+                .help("Connection settings")
+                #else
+                Button("Connection Settings", systemImage: "gearshape") { showsSettings = true }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                #endif
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

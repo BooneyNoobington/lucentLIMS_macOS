@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// The app's data. For now it holds mock data in memory; later this is where lucentBASE
-/// comes in.
+/// The app's data, as the views see it. It is loaded from a `LabService` (the demo data or
+/// lucentAPI) and sends changes there, replacing its copies with what comes back.
 @MainActor
 @Observable
 final class LabStore {
@@ -25,6 +25,11 @@ final class LabStore {
     let actions: [LabAction]
     let actionVariables: [ActionVariable]
     let currentUser: Person
+    let roles: Set<LabRole>
+    let service: any LabService
+
+    /// The message of the last change that failed, for an alert.
+    var errorMessage: String?
 
     // What the lab changes
     var devices: [Device]
@@ -46,12 +51,13 @@ final class LabStore {
     private let sopsByID: [Int: SOP]
     private let actionsByID: [Int: LabAction]
     private let actionVariablesByID: [Int: ActionVariable]
-    @ObservationIgnored private var nextValueID: Int
 
-    init(data: LabData? = nil, now: Date = .now, calendar: Calendar = .current, userName: String = NSUserName()) {
-        let data = data ?? MockData.make(now: now, calendar: calendar)
+    init(snapshot: LabSnapshot, service: any LabService, now: Date = .now, calendar: Calendar = .current) {
+        let data = snapshot.data
         self.now = now
         self.calendar = calendar
+        self.service = service
+        roles = snapshot.roles
 
         organizations = data.organizations
         people = data.people
@@ -72,9 +78,8 @@ final class LabStore {
         tasks = data.tasks
         messages = data.messages
         classActions = data.classActions
-
-        // Like lucentAndShiny, the user is whoever is logged in to the machine.
-        currentUser = data.people.first { $0.unixAccount == userName } ?? data.people[0]
+        currentUser = data.people.first { $0.id == snapshot.currentUserID }
+            ?? Person(id: snapshot.currentUserID, givenName: "", surname: "?", unixAccount: "")
 
         organizationsByID = Self.index(data.organizations)
         peopleByID = Self.index(data.people)
@@ -88,8 +93,19 @@ final class LabStore {
         sopsByID = Self.index(data.sops)
         actionsByID = Self.index(data.actions)
         actionVariablesByID = Self.index(data.actionVariables)
-        nextValueID = (data.values.map(\.id).max() ?? 0) + 1
     }
+
+    /// The demo data. Like lucentAndShiny, the user is whoever is logged in to the machine.
+    static func demo(now: Date = .now, calendar: Calendar = .current, userName: String = NSUserName()) -> LabStore {
+        let data = MockData.make(now: now, calendar: calendar)
+        return LabStore(snapshot: MockLabService.snapshot(of: data, userName: userName),
+                        service: MockLabService(data: data, userName: userName), now: now, calendar: calendar)
+    }
+
+    func can(_ role: LabRole) -> Bool { roles.contains(role) || roles.contains(.admin) }
+
+    /// Whether the data is the demo data in memory rather than lucentAPI.
+    var isDemo: Bool { service is MockLabService }
 
     private static func index<T: Identifiable>(_ items: [T]) -> [Int: T] where T.ID == Int {
         Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
@@ -307,54 +323,57 @@ final class LabStore {
 
     // MARK: Changes
 
+    /// Runs a change in the background; if it fails, `errorMessage` says why.
+    func perform(_ change: @escaping @MainActor () async throws -> Void) {
+        Task {
+            do {
+                try await change()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     @discardableResult
     func registerCollection(matrixID: Int, classID: Int, spotID: Int?, siteID: Int?,
-                            sampledAt: Date, sampledByID: Int) -> LabCollection {
-        let collection = LabCollection(
-            id: (collections.map(\.id).max() ?? 0) + 1, name: nextIdentifier,
+                            sampledAt: Date, sampledByID: Int) async throws -> LabCollection {
+        let collection = try await service.register(NewCollection(
             matrixID: matrixID, classID: classID, spotID: spotID, siteID: siteID,
-            sampledAt: sampledAt, sampledByID: sampledByID)
+            sampledAt: sampledAt, sampledByID: sampledByID))
         collections.append(collection)
         return collection
     }
 
-    func record(_ reading: Reading, for actionVariable: ActionVariable, in collectionID: Int) {
-        let action = self.action(actionVariable.actionID)
-        let deviceID = action?.deviceIDs.first { id in device(id)?.active == true }
-        let repetition = (values(of: collectionID, for: actionVariable).map(\.repetition).max() ?? 0) + 1
-        let value = LabValue(id: nextValueID, collectionID: collectionID, actionVariableID: actionVariable.id,
-                             repetition: repetition, reading: reading, accepted: false,
-                             measuredAt: .now, personID: currentUser.id, deviceID: deviceID)
-        nextValueID += 1
+    func record(_ reading: Reading, for actionVariable: ActionVariable, in collectionID: Int) async throws {
+        let value = try await service.record(reading, for: actionVariable, in: collectionID)
         valuesByCollection[collectionID, default: []].append(value)
     }
 
-    func setAccepted(_ accepted: Bool, valueID: Int, in collectionID: Int) {
-        guard let index = valuesByCollection[collectionID]?.firstIndex(where: { $0.id == valueID }) else { return }
-        valuesByCollection[collectionID]?[index].accepted = accepted
+    func setAccepted(_ accepted: Bool, value: LabValue) async throws {
+        let changed = try await service.setAccepted(accepted, value: value)
+        guard let index = valuesByCollection[changed.collectionID]?.firstIndex(where: { $0.id == changed.id }) else { return }
+        valuesByCollection[changed.collectionID]?[index] = changed
     }
 
-    func acceptAll(in collectionIDs: some Sequence<Int>) {
+    func acceptAll(in collectionIDs: [Int]) async throws {
         for id in collectionIDs {
-            guard var values = valuesByCollection[id] else { continue }
-            for index in values.indices { values[index].accepted = true }
-            valuesByCollection[id] = values
+            valuesByCollection[id] = try await service.acceptAll(in: id)
         }
     }
 
-    func setDone(_ done: Bool, taskID: Int) {
-        guard let index = tasks.firstIndex(where: { $0.id == taskID }) else { return }
-        tasks[index].done = done
+    func setDone(_ done: Bool, task: LabTask) async throws {
+        let changed = try await service.setDone(done, task: task)
+        if let index = tasks.firstIndex(where: { $0.id == changed.id }) { tasks[index] = changed }
     }
 
-    func setActive(_ active: Bool, deviceID: Int) {
-        guard let index = devices.firstIndex(where: { $0.id == deviceID }) else { return }
-        devices[index].active = active
+    func setActive(_ active: Bool, device: Device) async throws {
+        let changed = try await service.setActive(active, device: device)
+        if let index = devices.firstIndex(where: { $0.id == changed.id }) { devices[index] = changed }
     }
 
-    func setRead(_ read: Bool, messageID: Int) {
-        guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
-        messages[index].read = read
+    func setRead(_ read: Bool, message: Message) async throws {
+        let changed = try await service.setRead(read, message: message)
+        if let index = messages.firstIndex(where: { $0.id == changed.id }) { messages[index] = changed }
     }
 }
 

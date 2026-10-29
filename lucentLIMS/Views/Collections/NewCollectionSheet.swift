@@ -15,12 +15,14 @@ struct NewCollectionSheet: View {
     @State private var siteID: Int
     @State private var sampledAt = Date.now
     @State private var samplerID: Int
+    @State private var saving = false
+    @State private var error: String?
 
     init(store: LabStore) {
-        _matrixID = State(initialValue: store.matrices[0].id)
-        _classID = State(initialValue: store.collectionClasses[0].id)
-        _spotID = State(initialValue: store.spots[0].id)
-        _siteID = State(initialValue: store.sites[0].id)
+        _matrixID = State(initialValue: store.matrices.first?.id ?? 0)
+        _classID = State(initialValue: store.collectionClasses.first?.id ?? 0)
+        _spotID = State(initialValue: store.spots.first?.id ?? 0)
+        _siteID = State(initialValue: store.sites.first?.id ?? 0)
         _samplerID = State(initialValue: store.currentUser.id)
     }
 
@@ -33,7 +35,18 @@ struct NewCollectionSheet: View {
                             .font(.title3)
                     }
                 } footer: {
-                    Text("Mixed-radix numbering from las.yaml. Consecutive identifiers differ in the last segment, so they are hard to mix up.")
+                    if store.isDemo {
+                        Text("Mixed-radix numbering from las.yaml. Consecutive identifiers differ in the last segment, so they are hard to mix up.")
+                    } else {
+                        Text("The server assigns the identifier when you register; this is the one it will most likely give.")
+                    }
+                }
+
+                if let error {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 Section("Sample") {
@@ -88,14 +101,23 @@ struct NewCollectionSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Register") {
-                        let collection = store.registerCollection(
-                            matrixID: matrixID, classID: classID,
-                            spotID: relation == .spot ? spotID : nil,
-                            siteID: relation == .site ? siteID : nil,
-                            sampledAt: sampledAt, sampledByID: samplerID)
-                        navigation.open(collection: collection.id)
-                        dismiss()
+                        saving = true
+                        Task {
+                            do {
+                                let collection = try await store.registerCollection(
+                                    matrixID: matrixID, classID: classID,
+                                    spotID: relation == .spot ? spotID : nil,
+                                    siteID: relation == .site ? siteID : nil,
+                                    sampledAt: sampledAt, sampledByID: samplerID)
+                                navigation.open(collection: collection.id)
+                                dismiss()
+                            } catch {
+                                self.error = error.localizedDescription
+                            }
+                            saving = false
+                        }
                     }
+                    .disabled(saving || !store.can(.sampler))
                 }
             }
         }

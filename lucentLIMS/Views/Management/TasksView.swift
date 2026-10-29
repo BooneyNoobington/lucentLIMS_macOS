@@ -49,7 +49,7 @@ private struct TaskRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
-                store.setDone(!task.done, taskID: task.id)
+                store.perform { try await store.setDone(!task.done, task: task) }
             } label: {
                 Image(systemName: task.done ? "checkmark.circle.fill" : "circle")
                     .font(.title3)

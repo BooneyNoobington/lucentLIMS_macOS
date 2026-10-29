@@ -39,6 +39,7 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New Collection", systemImage: "plus") { navigation.presentNewCollection() }
+                    .disabled(!store.can(.sampler))
             }
         }
     }
@@ -261,7 +262,7 @@ private struct Inbox: View {
         VStack(spacing: 0) {
             ForEach(messages) { message in
                 Button {
-                    store.setRead(!message.read, messageID: message.id)
+                    store.perform { try await store.setRead(!message.read, message: message) }
                 } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Circle()

@@ -75,8 +75,9 @@ struct CollectionDetailView: View {
                 if status == .inReview {
                     Section {
                         Button("Accept All Values", systemImage: "checkmark.seal.fill") {
-                            withAnimation { store.acceptAll(in: [collection.id]) }
+                            store.perform { try await store.acceptAll(in: [collection.id]) }
                         }
+                        .disabled(!store.can(.reviewer))
                     } footer: {
                         Text("Approval follows the four-eyes principle of SOP-009.")
                     }
@@ -136,9 +137,9 @@ struct LocationMap: View {
         Map(initialPosition: .region(region), interactionModes: []) {
             switch location {
             case .spot(let id):
-                if let spot = store.spot(id) {
+                if let spot = store.spot(id), let point = spot.point {
                     Marker(spot.name, systemImage: store.primaryMatrix(at: location)?.systemImage ?? "mappin",
-                           coordinate: spot.point.coordinate)
+                           coordinate: point.coordinate)
                         .tint(store.primaryMatrix(at: location)?.tint ?? .accentColor)
                 }
             case .site(let id):
@@ -156,7 +157,7 @@ struct LocationMap: View {
     private var region: MKCoordinateRegion {
         switch location {
         case .spot(let id):
-            MKCoordinateRegion(center: store.spot(id)?.point.coordinate ?? LocationsView.karlsruhe.center,
+            MKCoordinateRegion(center: store.spot(id)?.point?.coordinate ?? LocationsView.karlsruhe.center,
                                latitudinalMeters: 700, longitudinalMeters: 700)
         case .site(let id):
             store.site(id).map { LocationsView.region(for: $0) } ?? LocationsView.karlsruhe
@@ -198,14 +199,16 @@ private struct ValueRow: View {
                 .fontWeight(exceeds ? .semibold : .regular)
                 .foregroundStyle(exceeds ? .red : .primary)
             Button {
-                withAnimation { store.setAccepted(!value.accepted, valueID: value.id, in: value.collectionID) }
+                store.perform { try await store.setAccepted(!value.accepted, value: value) }
             } label: {
                 Image(systemName: value.accepted ? "checkmark.seal.fill" : "seal")
                     .foregroundStyle(value.accepted ? Color.green : Color.secondary)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.borderless)
-            .help(value.accepted ? "Accepted. Click to withdraw." : "Accept this value")
+            .disabled(!store.can(.reviewer))
+            .help(!store.can(.reviewer) ? "Needs the reviewer role"
+                  : value.accepted ? "Accepted. Click to withdraw." : "Accept this value")
         }
     }
 
@@ -213,7 +216,7 @@ private struct ValueRow: View {
         var parts: [String] = []
         if let uncertainty = store.uncertaintyText(actionVariable) { parts.append(uncertainty) }
         if let limit = store.limitPhrase(actionVariable) { parts.append(limit) }
-        parts.append(value.measuredAt.formatted(date: .numeric, time: .shortened))
+        if let measuredAt = value.measuredAt { parts.append(measuredAt.formatted(date: .numeric, time: .shortened)) }
         if let person = store.person(value.personID) { parts.append(person.unixAccount) }
         return parts.joined(separator: " · ")
     }
@@ -236,6 +239,9 @@ private struct PendingValueRow: View {
                     .foregroundStyle(.orange)
             }
             Spacer()
+            if !store.can(.analyst) {
+                Text("—").foregroundStyle(.tertiary).help("Recording values needs the analyst role")
+            } else {
             switch variable?.valueClass ?? .decimal {
             case .boolean:
                 Button("No") { record(.boolean(false)) }
@@ -262,13 +268,14 @@ private struct PendingValueRow: View {
                     .frame(maxWidth: 140)
                     .onSubmit { if !text.isEmpty { record(.text(text)) } }
             }
+            }
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
     }
 
     private func record(_ reading: Reading) {
-        withAnimation { store.record(reading, for: actionVariable, in: collectionID) }
+        store.perform { try await store.record(reading, for: actionVariable, in: collectionID) }
     }
 }
 

@@ -99,8 +99,10 @@ struct CollectionsView: View {
             .width(min: 120, ideal: 140)
         }
         .contextMenu(forSelectionType: Int.self) { ids in
-            Button("Accept All Values", systemImage: "checkmark.seal") { store.acceptAll(in: ids) }
-                .disabled(ids.isEmpty)
+            Button("Accept All Values", systemImage: "checkmark.seal") {
+                store.perform { try await store.acceptAll(in: Array(ids)) }
+            }
+            .disabled(ids.isEmpty || !store.can(.reviewer))
             if let id = ids.first, ids.count == 1, let collection = store.collection(id),
                let location = store.location(of: collection) {
                 Button("Show on Map", systemImage: "map") { navigation.open(location: location) }
@@ -132,6 +134,7 @@ struct CollectionsView: View {
             }
             ToolbarItem {
                 Button("New Collection", systemImage: "plus") { navigation.presentNewCollection() }
+                    .disabled(!store.can(.sampler))
             }
             ToolbarItem {
                 Button("Inspector", systemImage: "sidebar.trailing") {
@@ -161,8 +164,9 @@ private struct CollectionInspector: View {
             } description: {
                 Text("\(inReview.count) of them are waiting for review.")
             } actions: {
-                Button("Accept All Values") { store.acceptAll(in: selection) }
+                Button("Accept All Values") { store.perform { try await store.acceptAll(in: Array(selection)) } }
                     .buttonStyle(.borderedProminent)
+                    .disabled(!store.can(.reviewer))
             }
         } else {
             ContentUnavailableView("No Collection Selected", systemImage: "testtube.2",

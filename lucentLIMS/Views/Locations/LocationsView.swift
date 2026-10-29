@@ -34,9 +34,9 @@ struct LocationsView: View {
                     .tint(Color.accentColor)
                     .tag(LocationRef.site(site.id))
             }
-            ForEach(store.spots) { spot in
+            ForEach(store.spots.filter { $0.point != nil }) { spot in
                 let matrix = store.primaryMatrix(at: .spot(spot.id))
-                Marker(spot.name, systemImage: matrix?.systemImage ?? "mappin", coordinate: spot.point.coordinate)
+                Marker(spot.name, systemImage: matrix?.systemImage ?? "mappin", coordinate: spot.point!.coordinate)
                     .tint(matrix?.tint ?? .red)
                     .tag(LocationRef.spot(spot.id))
             }
@@ -76,8 +76,8 @@ struct LocationsView: View {
         withAnimation(.smooth(duration: 0.8)) {
             switch selection {
             case .spot(let id):
-                if let spot = store.spot(id) {
-                    position = .camera(MapCamera(centerCoordinate: spot.point.coordinate, distance: 2500, pitch: 45))
+                if let point = store.spot(id)?.point {
+                    position = .camera(MapCamera(centerCoordinate: point.coordinate, distance: 2500, pitch: 45))
                 }
             case .site(let id):
                 if let site = store.site(id) { position = .region(Self.region(for: site)) }
@@ -220,10 +220,10 @@ private struct LocationDetailView: View {
     @ViewBuilder
     private func spotSection(_ spot: Spot) -> some View {
         Section("Position") {
-            LabeledContent("x (latitude)", value: spot.x.formatted(.number.precision(.fractionLength(6))))
-            LabeledContent("y (longitude)", value: spot.y.formatted(.number.precision(.fractionLength(6))))
+            LabeledContent("x (latitude)", value: spot.x?.formatted(.number.precision(.fractionLength(6))) ?? "—")
+            LabeledContent("y (longitude)", value: spot.y?.formatted(.number.precision(.fractionLength(6))) ?? "—")
             if let crs = store.referenceSystem(spot.crsID) {
-                LabeledContent("Reference system", value: "\(crs.name) (EPSG:\(String(crs.epsg)))")
+                LabeledContent("Reference system", value: crs.epsg.map { "\(crs.name) (EPSG:\(String($0)))" } ?? crs.name)
             }
             if let site = store.site(spot.siteID) {
                 LabeledContent("Site") {

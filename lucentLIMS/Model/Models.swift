@@ -30,7 +30,7 @@ struct Person: Identifiable, Hashable, Sendable {
 
 struct CRS: Identifiable, Hashable, Sendable {
     let id: Int
-    var epsg: Int
+    var epsg: Int?
     var name: String
 }
 
@@ -60,7 +60,7 @@ struct Site: Identifiable, Hashable, Sendable {
     var description: String
     var address: Address?
     var border: [GeoPoint]
-    var crsID: Int
+    var crsID: Int?
 
     var center: GeoPoint {
         let n = Double(max(border.count, 1))
@@ -76,12 +76,15 @@ struct Spot: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
     var description: String
-    var x: Double
-    var y: Double
-    var crsID: Int
+    var x: Double?
+    var y: Double?
+    var crsID: Int?
     var siteID: Int?
 
-    var point: GeoPoint { GeoPoint(latitude: x, longitude: y) }
+    var point: GeoPoint? {
+        guard let x, let y else { return nil }
+        return GeoPoint(latitude: x, longitude: y)
+    }
 }
 
 enum LocationRef: Hashable, Sendable {
@@ -114,7 +117,7 @@ struct LabUnit: Identifiable, Hashable, Sendable {
     var name: String
     /// From `unit_notation`. The first one is used for display.
     var notations: [String]
-    var dimensionID: Int
+    var dimensionID: Int?
 
     var symbol: String { notations.first ?? "" }
 }
@@ -137,9 +140,11 @@ struct Device: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
     var number: String
-    var manufacturerID: Int
+    var manufacturerID: Int?
     var operatorID: Int?
     var active: Bool
+    /// lucentAPI's version tag, sent back when changing the device.
+    var etag: String? = nil
 }
 
 /// A document of an SOP (`link`), either a URL or a file path.
@@ -232,7 +237,7 @@ struct LabCollection: Identifiable, Hashable, Sendable {
     /// Not in lucentBASE.
     var sampledAt: Date
     /// Not in lucentBASE.
-    var sampledByID: Int
+    var sampledByID: Int?
 }
 
 enum Reading: Hashable, Sendable {
@@ -258,9 +263,11 @@ struct LabValue: Identifiable, Hashable, Sendable {
     var repetition: Int
     var reading: Reading
     var accepted: Bool
-    var measuredAt: Date
-    var personID: Int
+    /// When, by whom and with what it was measured, from lucentBASE's raw values.
+    var measuredAt: Date?
+    var personID: Int?
     var deviceID: Int?
+    var etag: String? = nil
 }
 
 /// Derived from the values of a collection against what its class plans.
@@ -277,17 +284,18 @@ struct LabTask: Identifiable, Hashable, Sendable {
     let id: Int
     var request: String
     var description: String
-    var assignerID: Int
-    var assigneeID: Int
+    var assignerID: Int?
+    var assigneeID: Int?
     var deadline: Date
     /// Not in lucentBASE.
     var done: Bool
+    var etag: String? = nil
 }
 
 struct Message: Identifiable, Hashable, Sendable {
     let id: Int
-    var senderID: Int
-    var receiverID: Int
+    var senderID: Int?
+    var receiverID: Int?
     var subject: String
     var body: String
     var read: Bool

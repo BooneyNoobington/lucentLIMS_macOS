@@ -2,12 +2,12 @@ import SwiftUI
 
 @main
 struct LucentLIMSApp: App {
-    @State private var store = LabStore()
+    @State private var connection = Connection()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(store)
+                .environment(connection)
         }
         #if os(macOS)
         .defaultSize(width: 1400, height: 880)
@@ -17,6 +17,13 @@ struct LucentLIMSApp: App {
             InspectorCommands()
             LabCommands()
         }
+        #if os(macOS)
+        Settings {
+            ConnectionSettingsView()
+                .environment(connection)
+                .frame(width: 520)
+        }
+        #endif
     }
 }
 

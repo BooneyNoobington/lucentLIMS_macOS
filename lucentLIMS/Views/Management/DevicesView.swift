@@ -37,8 +37,10 @@ struct DevicesView: View {
             TableColumn("Active") { device in
                 Toggle("Active", isOn: Binding(
                     get: { device.active },
-                    set: { store.setActive($0, deviceID: device.id) }))
+                    set: { active in store.perform { try await store.setActive(active, device: device) } }))
                 .labelsHidden()
+                .disabled(!store.can(.admin))
+                .help(store.can(.admin) ? "Switch the device on or off" : "Needs the admin role")
                 .toggleStyle(.switch)
                 .controlSize(.small)
             }

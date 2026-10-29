@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4C55434E0000000000000020 /* LucentAPIClient in Frameworks */ = {isa = PBXBuildFile; productRef = 4C55434E0000000000000021 /* LucentAPIClient */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		4C55434E0000000000000010 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4C55434E0000000000000020 /* LucentAPIClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +95,7 @@
 			);
 			name = lucentLIMS;
 			packageProductDependencies = (
+				4C55434E0000000000000021 /* LucentAPIClient */,
 			);
 			productName = lucentLIMS;
 			productReference = 4C55434E0000000000000006 /* lucentLIMS.app */;
@@ -146,6 +152,9 @@
 			);
 			mainGroup = 4C55434E0000000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4C55434E0000000000000022 /* XCLocalSwiftPackageReference "Packages/LucentAPIClient" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4C55434E0000000000000003 /* Products */;
 			projectDirPath = "";
@@ -411,6 +420,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		4C55434E0000000000000022 /* XCLocalSwiftPackageReference "Packages/LucentAPIClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/LucentAPIClient;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4C55434E0000000000000021 /* LucentAPIClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LucentAPIClient;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4C55434E0000000000000001 /* Project object */;
 }
