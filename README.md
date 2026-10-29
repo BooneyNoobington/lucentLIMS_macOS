@@ -58,7 +58,9 @@ scripts/make-icon.swift  draws the app icon
 ```
 
 `LabStore` is the only place the views get data from. Connecting lucentBASE means filling
-`LabStore` (or the `LabData` it starts from) from the database instead of `MockData`.
+`LabStore` (or the `LabData` it starts from) from the database instead of `MockData`. The
+way in is [lucentAPI](../lucentAPI), a separate repository: an HTTPS API with OpenID Connect
+tokens, whose `openapi.json` can generate the Swift client.
 
 ## The data model
 
