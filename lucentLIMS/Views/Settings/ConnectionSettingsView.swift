@@ -111,7 +111,13 @@ struct SignInView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Sign In to \(connection.summary)", systemImage: "person.badge.key")
+            Label {
+                Text("Sign In to \(connection.summary)")
+            } icon: {
+                LucentMark()
+                    .frame(width: 64, height: 64)
+                    .padding(.bottom, 8)
+            }
         } description: {
             switch connection.method {
             case .openIDConnect:

@@ -23,7 +23,11 @@ struct ContentView: View {
                 }
                 .id(navigation.section)
             case .loading:
-                ProgressView("Loading from \(connection.summary)…")
+                VStack(spacing: 20) {
+                    LucentMark()
+                        .frame(width: 64, height: 64)
+                    ProgressView("Loading from \(connection.summary)…")
+                }
             case .needsSignIn:
                 SignInView()
             case .failed(let message):
@@ -111,7 +115,14 @@ private struct Sidebar: View {
 
     var body: some View {
         List(selection: $selection) {
-            row(.dashboard)
+            Section {
+                row(.dashboard)
+            } header: {
+                LucentLogo(height: 26)
+                    .padding(.top, 4)
+                    .padding(.bottom, 10)
+                    .textCase(nil)
+            }
             Section("Laboratory") {
                 row(.collections, badge: store.collections.filter { store.status(of: $0) == .inReview }.count)
                 row(.locations)
@@ -127,7 +138,9 @@ private struct Sidebar: View {
                 row(.sops)
             }
         }
+        #if os(macOS)
         .navigationTitle("lucentLIMS")
+        #endif
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 10) {
                 Avatar(person: store.currentUser, size: 30)
@@ -153,6 +166,7 @@ private struct Sidebar: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            .background(.bar)
         }
     }
 

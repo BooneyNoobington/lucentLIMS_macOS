@@ -71,7 +71,7 @@ struct DashboardView: View {
             Button { navigation.showCollections() } label: {
                 KPITile(title: "Collections this week", value: "\(store.collections(sampledIn: week).count)",
                         detail: String(localized: "\(store.collections(sampledIn: lastWeek).count) last week"),
-                        systemImage: "testtube.2", tint: .accentColor)
+                        systemImage: "testtube.2", tint: .teal)
             }
             Button { navigation.showCollections(status: .inReview) } label: {
                 KPITile(title: "Awaiting review", value: "\(inReview)",

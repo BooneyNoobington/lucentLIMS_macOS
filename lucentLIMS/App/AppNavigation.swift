@@ -100,8 +100,8 @@ extension AppNavigation {
                   let id = Int(parts[1]) else { return nil }
             return (parts[0], id)
         }
-        if let raw = defaults.string(forKey: "section"), let item = SidebarItem(rawValue: raw) {
-            section = item
+        if let raw = defaults.string(forKey: "section") {
+            section = SidebarItem(rawValue: raw)  // "none" shows the sidebar on an iPhone
         }
         if defaults.integer(forKey: "collection") > 0 {
             collectionSelection = [defaults.integer(forKey: "collection")]

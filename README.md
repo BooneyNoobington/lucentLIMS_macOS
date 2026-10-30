@@ -1,3 +1,5 @@
+<p align="center"><img src="Branding/lucentLIMS-logo.svg" alt="lucentLIMS" width="420"></p>
+
 # lucentLIMS
 
 A native front end for lucentBASE, written in SwiftUI. It follows
@@ -211,7 +213,27 @@ The settings can be set the same way, and a debug build takes a token on the com
 xcrun simctl launch booted com.redhsoft.lucentLIMS -LucentSource server -LucentServerURL http://localhost:8765 -LucentSignInMethod accessToken -LucentAccessToken "$TOKEN"
 ```
 
-## App icon
+## Logo and app icon
 
-`swift scripts/make-icon.swift <directory>` draws `icon-ios.png` and `icon-mac.png`. The
-asset catalog holds those images, with the Mac sizes scaled using `sips`.
+The logo is two translucent cards laid over each other to form an L. [Branding/](Branding)
+holds it as SVG: the mark (`lucentLIMS-icon.svg`), a one-colour version
+(`lucentLIMS-icon-monochrome.svg`) and the mark with the wordmark (`lucentLIMS-logo.svg`).
+
+| | |
+|---|---|
+| Vertical card | `#59B9F4` |
+| Horizontal card | `#7ADFC8` |
+| Overlap | `#168ED0`, also the app's accent colour (`#59B9F4` in dark mode) |
+| Wordmark | `#252B34` ("lucent" bold, "LIMS" light) |
+
+In the app, `LucentMark` and `LucentLogo` ([Logo.swift](lucentLIMS/Views/Components/Logo.swift))
+draw it from the same geometry, so it stays sharp at every size. It appears at the top of
+the sidebar and on the sign-in and loading screens.
+
+`swift scripts/make-icon.swift <directory>` draws the app icons from that geometry:
+
+- `icon-ios.png`, the mark on a light background;
+- `icon-ios-dark.png` and `icon-ios-tinted.png`, for iOS's dark and tinted home screens;
+- `icon-mac.png`, a plate with margin and shadow.
+
+The asset catalog holds them, with the Mac sizes scaled using `sips`.
