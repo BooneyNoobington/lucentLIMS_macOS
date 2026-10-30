@@ -17,15 +17,15 @@ The data comes from one of two places:
 | Section | What it does |
 |---|---|
 | **Dashboard** | Greeting for the logged-in user, key figures, collections per week by matrix, status donut (hover or tap a sector), limit exceedances of the last 30 days, upcoming tasks, inbox |
-| **Collections** | Sortable, searchable table with status filter. The inspector shows a collection's values (with limits, uncertainty, repetitions and an accept seal), its actions and where it was sampled. Pending values can be entered there. Context menu: accept all values, show on map |
-| **New collection** | Like lucentAndShiny's "Add Collection" dialog: next identifier, matrix, class, spot or site, plus the methods the class plans |
-| **Locations** | Spots and sites on a map. A selected location shows its position, address and a time series of any variable measured there, with the limit drawn in. The chart opens on the variable that exceeded its limit most often |
-| **Methods** | Actions with their variables, units, uncertainties, limits, formulas, dependencies, SOP, devices and people |
-| **Variables & Units** | Variables, units with notations, dimensions, matrices and collection classes |
-| **People, Devices, Tasks, SOPs** | Organizations and roles, devices (switch them on and off), tasks by due date, SOP documents with acceptance state and SHA-256 |
+| **Collections** | Sortable, searchable table with status filter. The inspector shows a collection's values grouped by action, each with its raw values (limits, uncertainty, repetitions and an accept seal), the actions and where it was sampled. Pending values can be entered there. Context menu: accept all raw values, show on map |
+| **New collection** | Like lucentAndShiny's "Add Collection" dialog: next identifier, matrix, collection class, spot or site, the actions to plan (preset from the matrix's latest collection) and the sampling time |
+| **Locations** | Spots and sites on a map. A selected location shows its position, address and a time series of any parameter measured there, with its limits drawn in. The chart opens on the parameter that exceeded its limits most often |
+| **Methods** | Actions with their effects (parameter, unit, uncertainty, limits, formula), dependencies, versions, documents, devices and people |
+| **Parameters & Units** | Parameters with their limits, units with notations, dimensions, matrices and collection classes |
+| **People, Devices, Tasks, Documents** | Organizations and positions, devices (switch them on and off), tasks by due date, documents with acceptance state, SHA-256 and the limits they set |
 
-Pages link to each other: a person in a method, a method in a collection, an SOP in a method
-and so on. On the Mac there are menu commands: **File → New Collection…** (⇧⌘N) and a **Go**
+Pages link to each other: a person in a method, a method in a collection, a document in a
+method and so on. On the Mac there are menu commands: **File → New Collection…** (⇧⌘N) and a **Go**
 menu (⌘1 to ⌘9).
 
 ## Connecting to lucentAPI
@@ -46,13 +46,14 @@ then sign in in one of two ways:
 - **Access token**, for development: paste a token, e.g. from lucentAPI's
   `uv run python dev/mint_token.py grindel admin`.
 
-The app loads the reference data and the collections of the last 26 weeks with their values.
+The app loads the reference data and the collections of the last 26 weeks with their values
+and raw values.
 Changes go to the API, and the app shows what comes back. The roles in the token decide what's
 enabled:
 
 - registering needs `sampler`;
-- recording values needs `analyst`;
-- accepting needs `reviewer`, and never for values you measured yourself;
+- recording raw values needs `analyst`;
+- accepting needs `reviewer`, and never for raw values you measured yourself;
 - switching devices needs `admin`.
 
 If the API refuses a change, for example because someone else changed the record in the
@@ -137,50 +138,55 @@ The layers can be taken apart:
 
 ## The data model
 
-The types follow the lucentBASE tables. Some names are prefixed where they would collide with
+The types follow lucentBASE's tables. Some names are prefixed where they would collide with
 Foundation or SwiftUI:
 
 | lucentBASE | Swift |
 |---|---|
-| `collection` | `LabCollection` |
-| `action`, `j_action_variable`, `j_action_collection_class` | `LabAction`, `ActionVariable`, `LabData.classActions` |
-| `j_action_dependency`, `j_action_implication` | `LabAction.dependsOn`, `LabAction.implies` |
-| `value` | `LabValue` (the decimal, text, boolean and datetime columns become one `Reading`) |
+| `collection` (with its `collection_class`) | `LabCollection` |
+| `action`, `j_action_link`, `j_action_device`, `j_action_person` | `LabAction` with `documentIDs`, `deviceIDs` and `people` (`Assignment`) |
+| `j_action_action` | `LabAction.dependencies` (`Dependency`, strict or a possibility) |
+| `effect` | `Effect`: what an action yields, one parameter with the method's uncertainty |
+| `parameter` | `Parameter`, with its `ValueClass` |
+| `value` | `LabValue`: a collection's slot for one effect |
+| `raw_value` | `RawValue`: a reading; the decimal, text, boolean and datetime columns become one `Reading` |
+| `threshold` | `Threshold`: limits of a parameter in the context of a document |
+| `coefficient` | `Coefficient` |
+| `link` | `Document` |
 | `unit`, `unit_notation` | `LabUnit` with `notations` |
 | `dimension` | `PhysicalDimension` |
-| `sop`, `link`, `j_sop_link`, `j_sop_person` | `SOP` with `documents` (`SOPDocument`) and `people` |
 | `site`, `spot`, `crs`, `v_address` | `Site`, `Spot`, `CRS`, `Address` |
 | `person`, `organization`, `j_person_organization` | `Person` (with `position`), `Organization` |
 | `task`, `message` | `LabTask`, `Message` |
 
 As in lucentBASE, `spot.x` is the latitude and `spot.y` the longitude.
 
-The app needs a few fields lucentBASE doesn't have yet. They are marked "Not in lucentBASE"
-in [Models.swift](lucentLIMS/Model/Models.swift), and lucentAPI's
-`sql/lucentbase-additions.sql` adds them to the database:
+The rules are lucentAPI's, and `MockLabService` follows them too:
 
-- `collection`: when and by whom it was sampled;
-- `j_action_variable`: limits and display precision;
-- `task.done` and `message.sent_at`.
+- Registering a collection plans actions: every effect of them becomes a value.
+- A further raw value of the same value is a repetition.
+- The **sampling time** is the datetime raw value of a configured parameter
+  ("Probenahmezeitpunkt" in the demo data), recorded when the collection is registered. If no
+  planned action yields it, the registration time stands in.
+- The **limits** of a raw value are the thresholds of its parameter in the documents of its
+  action. pH has limits from the drinking water ordinance in the current method, none in the
+  old one, which refers to its SOP only.
+- A collection's status comes from its values: *registered* (no raw values), *in analysis*
+  (some values have one), *in review* (all have, not all accepted), *approved* (all accepted).
 
-A value's time, person and device come from its latest `raw_value`. Not modelled yet:
-`constant`, `j_value_value`, `j_variable_variable`, and the "Compound" option of the old
-dialog.
-
-A collection's status is derived from its values: *registered* (none), *in analysis* (some
-of the planned ones), *in review* (all, not all accepted), *approved* (all accepted).
+Not modelled yet: `constant`, `j_value_value`, and the "Compound" option of the old dialog.
 
 ### Mock data
 
-[MockData.swift](lucentLIMS/Model/MockData.swift) uses the demo data of lucentAndShiny
-(people, matrices, the collection class "Zeitreihe", the spots "Test 1" and "Garten") and adds
-about 100 collections over twelve weeks around Karlsruhe. It's generated with a seeded random
-generator, so it looks the same on every launch, and relative to the current date, so the
-dashboard is always up to date. It has stories to find: nitrate rising above the limit at
-GWM 12, lead at the tap in Labor 2.14 confirmed by repetitions, traffic exposure at the
-Messcontainer.
+[MockData.swift](lucentLIMS/Model/MockData.swift) has the same people, places, actions,
+parameters, documents and thresholds as lucentAPI's demo data, with the same ids. The people
+are lucentAndShiny's (Booney Noobington is the system user, `grindel`). It adds about 100
+collections over twelve weeks around Karlsruhe, generated with a seeded random generator, so
+it looks the same on every launch, and relative to the current date, so the dashboard is
+always up to date. It has stories to find: nitrate rising above the limit at GWM 12, lead at
+the tap in Labor 2.14 confirmed by repetitions, traffic exposure at the Messcontainer.
 
-The logged-in user is the person whose `unix_account` matches the macOS user name, as in
+The logged-in user is the person whose `linux_user` matches the macOS user name, as in
 lucentAndShiny. If none matches, it's the first person.
 
 ## Collection identifiers
@@ -201,8 +207,8 @@ xcrun simctl launch booted com.redhsoft.lucentLIMS -section locations -location 
 ```
 
 - `-section` takes a sidebar item: `dashboard`, `collections`, `locations`, `methods`,
-  `variables`, `people`, `devices`, `tasks` or `sops`.
-- `-route` pushes a page: `collection:96`, `method:5`, `person:28`, `sop:4`.
+  `parameters`, `people`, `devices`, `tasks` or `documents`.
+- `-route` pushes a page: `collection:88`, `method:5`, `person:6`, `document:12`.
 - `-collection <id>` selects a collection.
 - `-location spot:<id>` or `site:<id>` selects a location.
 - `-newCollection YES` opens the dialog.

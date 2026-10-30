@@ -99,7 +99,7 @@ struct CollectionsView: View {
             .width(min: 120, ideal: 140)
         }
         .contextMenu(forSelectionType: Int.self) { ids in
-            Button("Accept All Values", systemImage: "checkmark.seal") {
+            Button("Accept All Raw Values", systemImage: "checkmark.seal") {
                 store.perform { try await store.acceptAll(in: Array(ids)) }
             }
             .disabled(ids.isEmpty || !store.can(.reviewer))
@@ -111,7 +111,7 @@ struct CollectionsView: View {
             navigation.collectionSelection = ids
             navigation.showsCollectionInspector = true
         }
-        .searchable(text: $navigation.collectionSearch, prompt: "Identifier, matrix, location, sampler")
+        .searchable(text: $navigation.collectionSearch, prompt: "Identifier, matrix, class, location, sampler")
         .navigationTitle("Collections")
         #if os(macOS)
         .navigationSubtitle("\(rows.count) of \(store.collections.count)")
@@ -164,7 +164,7 @@ private struct CollectionInspector: View {
             } description: {
                 Text("\(inReview.count) of them are waiting for review.")
             } actions: {
-                Button("Accept All Values") { store.perform { try await store.acceptAll(in: Array(selection)) } }
+                Button("Accept All Raw Values") { store.perform { try await store.acceptAll(in: Array(selection)) } }
                     .buttonStyle(.borderedProminent)
                     .disabled(!store.can(.reviewer))
             }

@@ -20,82 +20,124 @@ struct LabStoreTests {
         let second = MockData.make(now: Self.now, calendar: Self.calendar)
         #expect(first.collections == second.collections)
         #expect(first.values == second.values)
+        #expect(first.rawValues == second.rawValues)
     }
 
     @Test func mockCollectionsAreNumberedInSamplingOrder() {
         let store = makeStore()
         let sorted = store.collections.sorted { $0.sampledAt < $1.sampledAt }
         let sequences = sorted.map { store.numbering.sequence(of: $0.name) }
-        #expect(sequences == Array(3000..<3000 + sorted.count))
+        #expect(sequences == Array(3001..<3001 + sorted.count))
         #expect(store.collections.allSatisfy { $0.sampledAt <= Self.now })
+    }
+
+    @Test func mockSamplingTimesAreRawValues() throws {
+        let store = makeStore()
+        let sampledByAction = store.collections.filter { collection in
+            store.plannedActions(of: collection).contains { $0.id == 1 || $0.id == 8 }
+        }
+        #expect(!sampledByAction.isEmpty)
+        for collection in sampledByAction.prefix(20) {
+            let slot = try #require(store.values(of: collection.id).first {
+                store.effect($0.effectID)?.parameterID == store.samplingTimeParameterID
+            })
+            #expect(store.rawValues(of: slot).first?.reading == .datetime(collection.sampledAt))
+        }
     }
 
     @Test func currentUserIsTheLoggedInAccount() {
         #expect(makeStore(userName: "xx121").currentUser.surname == "Ripley")
-        #expect(makeStore(userName: "nobody").currentUser.unixAccount == "grindel")
+        #expect(makeStore(userName: "nobody").currentUser.linuxUser == "grindel")
     }
 
-    @Test func statusFollowsTheValues() async throws {
+    /// pH and conductivity on drinking water at Hochbehälter Nord.
+    static let pHAndConductivity = NewCollection(matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil,
+                                                 actionIDs: [3, 4], sampledAt: nil)
+
+    @Test func everyEffectOfThePlannedActionsIsAValue() async throws {
         let store = makeStore()
-        let collection = try await store.registerCollection(matrixID: 10, classID: 1, spotID: 6, siteID: nil,
-                                                            sampledAt: Self.now, sampledByID: 26)
+        let collection = try await store.registerCollection(Self.pHAndConductivity)
+        #expect(store.values(of: collection.id).map(\.effectID) == [5, 6])
+        #expect(store.plannedActions(of: collection).map(\.id) == [3, 4])
+        #expect(collection.collectionClass == "spot sample")
+    }
+
+    @Test func statusFollowsTheRawValues() async throws {
+        let store = makeStore()
+        let collection = try await store.registerCollection(Self.pHAndConductivity)
         #expect(store.status(of: collection) == .registered)
 
-        let planned = store.plannedVariables(for: collection)
-        #expect(planned.count == 7)
-
-        try await store.record(.decimal(12.3), for: planned[0], in: collection.id)
+        let values = store.values(of: collection.id)
+        try await store.record(.decimal(7.4), for: values[0])
         #expect(store.status(of: collection) == .inAnalysis)
-        #expect(store.progress(of: collection) == (1, 7))
+        #expect(store.progress(of: collection) == (1, 2))
 
-        for actionVariable in planned.dropFirst() {
-            try await store.record(.decimal(0), for: actionVariable, in: collection.id)
-        }
+        try await store.record(.decimal(512), for: values[1])
         #expect(store.status(of: collection) == .inReview)
-        #expect(store.values(of: collection.id).allSatisfy { $0.personID == store.currentUser.id })
+        #expect(values.flatMap { store.rawValues(of: $0) }.allSatisfy { $0.personID == store.currentUser.id })
     }
 
-    @Test func nobodyAcceptsTheirOwnValues() async throws {
+    @Test func samplingTimeIsRecordedAsARawValue() async throws {
         let store = makeStore()
-        let collection = try await store.registerCollection(matrixID: 10, classID: 1, spotID: 6, siteID: nil,
-                                                            sampledAt: Self.now, sampledByID: 26)
-        let pH = try #require(store.actionVariable(4))
-        try await store.record(.decimal(7.5), for: pH, in: collection.id)
-        await #expect(throws: LabServiceError.self) { try await store.acceptAll(in: [collection.id]) }
-        let value = try #require(store.values(of: collection.id).first)
-        await #expect(throws: LabServiceError.self) { try await store.setAccepted(true, value: value) }
-        #expect(store.values(of: collection.id).first?.accepted == false)
+        let sampledAt = Self.now.addingTimeInterval(-3 * 3600)
+        var new = Self.pHAndConductivity
+        new.actionIDs = [1, 3]
+        new.sampledAt = sampledAt
+        let collection = try await store.registerCollection(new)
+        #expect(collection.sampledAt == sampledAt)
+        let slot = try #require(store.values(of: collection.id).first { store.effect($0.effectID)?.parameterID == 1 })
+        #expect(store.rawValues(of: slot).map(\.reading) == [.datetime(sampledAt)])
+        #expect(store.progress(of: collection) == (1, 3))
     }
 
-    @Test func reviewingSomeoneElsesValues() async throws {
+    @Test func samplingTimeNeedsItsParameter() async throws {
+        let store = makeStore()
+        var new = Self.pHAndConductivity
+        new.sampledAt = Self.now
+        await #expect(throws: LabServiceError.self) { try await store.registerCollection(new) }
+        #expect(store.collections.count == makeStore().collections.count)
+    }
+
+    @Test func nobodyAcceptsTheirOwnRawValues() async throws {
+        let store = makeStore()
+        let collection = try await store.registerCollection(Self.pHAndConductivity)
+        let pH = try #require(store.values(of: collection.id).first)
+        try await store.record(.decimal(7.5), for: pH)
+        await #expect(throws: LabServiceError.self) { try await store.acceptAll(in: [collection.id]) }
+        let raw = try #require(store.rawValues(of: pH).first)
+        await #expect(throws: LabServiceError.self) { try await store.setAccepted(true, rawValue: raw) }
+        #expect(store.rawValues(of: pH).first?.accepted == false)
+    }
+
+    @Test func reviewingSomeoneElsesRawValues() async throws {
         let store = makeStore()
         let inReview = try #require(store.collections.first { store.status(of: $0) == .inReview })
         try await store.acceptAll(in: [inReview.id])
         #expect(store.status(of: inReview) == .approved)
 
         let value = try #require(store.values(of: inReview.id).first)
-        try await store.setAccepted(false, value: value)
+        let raw = try #require(store.rawValues(of: value).first)
+        try await store.setAccepted(false, rawValue: raw)
         #expect(store.status(of: inReview) == .inReview)
     }
 
     @Test func registeringUsesTheNextIdentifier() async throws {
         let store = makeStore()
         let expected = store.nextIdentifier
-        let collection = try await store.registerCollection(matrixID: 8, classID: 2, spotID: 3, siteID: nil,
-                                                            sampledAt: Self.now, sampledByID: 27)
+        let collection = try await store.registerCollection(Self.pHAndConductivity)
         #expect(collection.name == expected)
         #expect(store.nextIdentifier == store.numbering.next(after: expected))
     }
 
     @Test func recordingAgainAddsARepetition() async throws {
         let store = makeStore()
-        let collection = try await store.registerCollection(matrixID: 9, classID: 3, spotID: 4, siteID: nil,
-                                                            sampledAt: Self.now, sampledByID: 26)
-        let lead = try #require(store.actionVariable(9))
-        try await store.record(.decimal(12), for: lead, in: collection.id)
-        try await store.record(.decimal(11.5), for: lead, in: collection.id)
-        #expect(store.values(of: collection.id, for: lead).map(\.repetition) == [1, 2])
-        #expect(store.exceedances(of: collection.id).count == 2)
+        let collection = try await store.registerCollection(NewCollection(
+            matrixID: 2, collectionClass: "spot sample", spotID: 4, siteID: nil, actionIDs: [6], sampledAt: nil))
+        let lead = try #require(store.values(of: collection.id).first { store.effect($0.effectID)?.parameterID == 10 })
+        try await store.record(.decimal(12), for: lead)
+        try await store.record(.decimal(11.5), for: lead)
+        #expect(store.rawValues(of: lead).compactMap(\.reading?.number) == [12, 11.5])
+        #expect(store.exceedances(of: collection).count == 2)
     }
 
     @Test func demoHasEveryRole() {
@@ -104,28 +146,41 @@ struct LabStoreTests {
         #expect(store.isDemo)
     }
 
-    @Test func limitsAreChecked() throws {
+    func raw(_ reading: Reading) -> RawValue { RawValue(id: 0, valueID: 0, reading: reading, accepted: false) }
+
+    @Test func limitsComeFromTheDocumentsOfTheAction() throws {
         let store = makeStore()
-        let pH = try #require(store.actionVariable(4))
-        #expect(!pH.exceeds(.decimal(7.2)))
-        #expect(pH.exceeds(.decimal(6.4)))
-        #expect(pH.exceeds(.decimal(9.6)))
+        let pH = try #require(store.effect(5))
+        #expect(store.limits(of: pH).map(\.documentID) == [12])
+        #expect(!store.exceeds(raw(.decimal(7.2)), of: pH))
+        #expect(store.exceeds(raw(.decimal(6.4)), of: pH))
+        #expect(store.exceeds(raw(.decimal(9.6)), of: pH))
 
-        let odour = try #require(store.actionVariable(3))
-        #expect(!odour.exceeds(.boolean(false)))
-        #expect(odour.exceeds(.boolean(true)))
+        // The old pH method refers to its SOP only, not to the drinking water ordinance.
+        let oldPH = try #require(store.effect(19))
+        #expect(store.limits(of: oldPH).isEmpty)
+        #expect(!store.exceeds(raw(.decimal(9.6)), of: oldPH))
 
-        let colour = try #require(store.actionVariable(2))
-        #expect(!colour.exceeds(.text("braun")))
+        // Groundwater and drinking water: nitrate has a threshold in both.
+        let nitrate = try #require(store.effect(7))
+        #expect(Set(store.limits(of: nitrate).map(\.documentID)) == [12, 13])
+
+        let odour = try #require(store.effect(4))
+        #expect(!store.exceeds(raw(.boolean(false)), of: odour))
+        #expect(store.exceeds(raw(.boolean(true)), of: odour))
+
+        let colour = try #require(store.effect(3))
+        #expect(!store.exceeds(raw(.text("braun")), of: colour))
     }
 
     @Test func seriesIsChronologicalAndFlagsExceedances() throws {
         let store = makeStore()
-        let nitrate = try #require(store.actionVariable(6))
+        let nitrate = try #require(store.parameter(7))
         let series = store.series(at: .spot(10), for: nitrate)
         #expect(!series.isEmpty)
         #expect(series.map(\.date) == series.map(\.date).sorted())
         #expect(series.allSatisfy { $0.exceeded == ($0.value > 50) })
+        #expect(series.contains { $0.exceeded })
     }
 
     @Test func siteIncludesItsSpots() {

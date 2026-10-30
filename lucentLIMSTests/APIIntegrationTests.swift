@@ -24,33 +24,51 @@ struct APIIntegrationTests {
     @Test func registerMeasureAndReview() async throws {
         let analyst = try await store("LUCENT_TEST_ANALYST")
         #expect(analyst.can(.sampler) && analyst.can(.analyst) && !analyst.can(.reviewer))
-        #expect(!analyst.collections.isEmpty && !analyst.actions.isEmpty)
+        #expect(!analyst.collections.isEmpty && !analyst.effects.isEmpty && !analyst.thresholds.isEmpty)
+        #expect(analyst.samplingTimeParameterID != nil)
 
-        // Register and measure as the analyst.
-        let collection = try await analyst.registerCollection(
-            matrixID: 10, classID: 1, spotID: 6, siteID: nil, sampledAt: .now, sampledByID: analyst.currentUser.id)
+        // Register pH and conductivity of drinking water at Hochbehälter Nord as the analyst.
+        let collection = try await analyst.registerCollection(NewCollection(
+            matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [3, 4], sampledAt: nil))
         #expect(analyst.numbering.sequence(of: collection.name) != nil)
-        let pH = try #require(analyst.actionVariable(4))
-        try await analyst.record(.decimal(9.8), for: pH, in: collection.id)
-        try await analyst.record(.decimal(9.7), for: pH, in: collection.id)
-        #expect(analyst.values(of: collection.id).map(\.repetition) == [1, 2])
-        #expect(analyst.exceedances(of: collection.id).count == 2)
-        #expect(analyst.values(of: collection.id).allSatisfy { $0.etag != nil && $0.measuredAt != nil })
+        #expect(analyst.values(of: collection.id).map(\.effectID) == [5, 6])
+        let pH = try #require(analyst.values(of: collection.id).first)
+        try await analyst.record(.decimal(9.8), for: pH)
+        try await analyst.record(.decimal(9.7), for: pH)
+        #expect(analyst.rawValues(of: pH).count == 2)
+        #expect(analyst.exceedances(of: collection).count == 2)
+        #expect(analyst.rawValues(of: pH).allSatisfy { $0.etag != nil && $0.t != nil })
 
         // The analyst can't review; the API says so.
         #expect(await status { try await analyst.acceptAll(in: [collection.id]) } == 403)
 
-        // A reviewer sees the new collection after loading and accepts its values.
+        // A reviewer sees the new collection after loading and accepts a raw value.
         let reviewer = try await store("LUCENT_TEST_REVIEWER")
         let loaded = try #require(reviewer.collection(collection.id))
         #expect(reviewer.status(of: loaded) == .inAnalysis)
-        let first = try #require(reviewer.values(of: collection.id).first)
-        try await reviewer.setAccepted(true, value: first)
-        #expect(reviewer.values(of: collection.id).first?.accepted == true)
+        let first = try #require(reviewer.rawValues(of: pH).first)
+        try await reviewer.setAccepted(true, rawValue: first)
+        #expect(reviewer.rawValues(of: pH).first?.accepted == true)
 
-        // The analyst's copy of that value is now outdated: its ETag no longer matches.
-        let stale = try #require(analyst.values(of: collection.id).first)
-        #expect(await status { _ = try await reviewer.service.setAccepted(false, value: stale) } == 412)
+        // The analyst's copy of that raw value is now outdated: its ETag no longer matches.
+        let stale = try #require(analyst.rawValues(of: pH).first)
+        #expect(await status { _ = try await reviewer.service.setAccepted(false, rawValue: stale) } == 412)
+    }
+
+    @Test func samplingTimeIsARawValue() async throws {
+        let analyst = try await store("LUCENT_TEST_ANALYST")
+        let sampledAt = Date(timeIntervalSince1970: (Date.now.timeIntervalSince1970 - 3600).rounded(.down))
+        let collection = try await analyst.registerCollection(NewCollection(
+            matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [1, 3],
+            sampledAt: sampledAt))
+        #expect(collection.sampledAt == sampledAt)
+        #expect(analyst.progress(of: collection) == (1, 3))
+
+        // Without the sampling action, there's nowhere to put the time.
+        await #expect(throws: LabServiceError.self) {
+            try await analyst.registerCollection(NewCollection(
+                matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [3], sampledAt: sampledAt))
+        }
     }
 
     /// The HTTP status a call fails with, or nil if it succeeds.

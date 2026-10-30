@@ -12,12 +12,17 @@ let api = LucentAPIClient(baseURL: URL(string: "https://lims.example.org")!) {
 }
 
 let open = try await api.collections(status: .inReview)
-let value = try await api.recordValue(.init(actionVariableId: 4, reading: .decimal(7.6)), in: 44)
-let accepted = try await api.acceptValue(id: value.id, etag: value.etag)
+let collection = try await api.registerCollection(.init(matrixId: 3, collectionClass: "spot sample", spotId: 6,
+                                                        actionIds: [1, 3], sampledAt: .now))
+let pH = collection.values.first { $0.effectId == 5 }!
+let raw = try await api.recordRawValue(.init(reading: .decimal(7.6)), for: pH.id)
+let accepted = try await api.acceptRawValue(id: raw.id, etag: raw.etag)  // by someone else
 ```
 
 - **Types:** they live in the `LucentAPI` namespace (`LucentAPI.Collection`,
-  `LucentAPI.Value`, …), so they don't clash with your own. Property names are the JSON names
+  `LucentAPI.Value`, `LucentAPI.RawValue`, …), so they don't clash with your own. They follow
+  lucentBASE: values are a collection's slots for the effects of its actions, raw values the
+  readings. Property names are the JSON names
   in camel case: `matrix_id` becomes `matrixId`.
 - **Errors:** a failed request throws `LucentAPIError`, with the HTTP status and lucentAPI's
   stable `code` (`four_eyes`, `precondition_failed`, `unknown_person`, …).

@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 
 /// Everything about one collection: where and when it was sampled, its values and actions.
+/// A value is the slot for one effect of a planned action; its raw values are the readings.
 struct CollectionDetailView: View {
     @Environment(LabStore.self) private var store
     @Environment(AppNavigation.self) private var navigation
@@ -14,7 +15,7 @@ struct CollectionDetailView: View {
     var body: some View {
         let status = store.status(of: collection)
         let progress = store.progress(of: collection)
-        let actions = store.actions(forClass: collection.classID)
+        let actions = store.plannedActions(of: collection)
 
         Form {
             Section {
@@ -27,7 +28,7 @@ struct CollectionDetailView: View {
                     }
                     let matrix = store.matrix(collection.matrixID)
                     Label {
-                        Text("\(matrix?.name ?? "—") · \(store.collectionClass(collection.classID)?.name ?? "—")")
+                        Text("\(matrix?.name ?? "—") · \(collection.collectionClass)")
                     } icon: {
                         Image(systemName: matrix?.systemImage ?? "questionmark")
                             .foregroundStyle(matrix?.tint ?? .gray)
@@ -60,13 +61,15 @@ struct CollectionDetailView: View {
             case .values:
                 ForEach(actions) { action in
                     Section(action.name) {
-                        ForEach(store.actionVariables(of: action)) { actionVariable in
-                            let values = store.values(of: collection.id, for: actionVariable)
-                            if values.isEmpty {
-                                PendingValueRow(collectionID: collection.id, actionVariable: actionVariable)
-                            } else {
-                                ForEach(values) { value in
-                                    ValueRow(value: value, actionVariable: actionVariable)
+                        ForEach(store.values(of: collection.id, for: action)) { value in
+                            if let effect = store.effect(value.effectID) {
+                                let raws = store.rawValues(of: value)
+                                if raws.isEmpty {
+                                    PendingValueRow(value: value, effect: effect)
+                                } else {
+                                    ForEach(Array(raws.enumerated()), id: \.element.id) { index, raw in
+                                        RawValueRow(raw: raw, effect: effect, repetition: index + 1)
+                                    }
                                 }
                             }
                         }
@@ -74,7 +77,7 @@ struct CollectionDetailView: View {
                 }
                 if status == .inReview {
                     Section {
-                        Button("Accept All Values", systemImage: "checkmark.seal.fill") {
+                        Button("Accept All Raw Values", systemImage: "checkmark.seal.fill") {
                             store.perform { try await store.acceptAll(in: [collection.id]) }
                         }
                         .disabled(!store.can(.reviewer))
@@ -97,6 +100,7 @@ struct CollectionDetailView: View {
 
                 Section("Sampling") {
                     LabeledContent("Sampled", value: collection.sampledAt.formatted(date: .abbreviated, time: .shortened))
+                    LabeledContent("Collection class", value: collection.collectionClass)
                     if let sampler = store.person(collection.sampledByID) {
                         NavigationLink(value: Route.person(sampler.id)) {
                             LabeledContent("By") {
@@ -165,19 +169,22 @@ struct LocationMap: View {
     }
 }
 
-private struct ValueRow: View {
+/// A reading of a value. Readings after the first are repetitions.
+private struct RawValueRow: View {
     @Environment(LabStore.self) private var store
-    let value: LabValue
-    let actionVariable: ActionVariable
+    let raw: RawValue
+    let effect: Effect
+    let repetition: Int
 
     var body: some View {
-        let exceeds = actionVariable.exceeds(value.reading)
+        let exceeds = store.exceeds(raw, of: effect)
+        let ownReading = raw.personID == store.currentUser.id
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(store.variable(actionVariable.variableID)?.name ?? "—")
-                    if value.repetition > 1 {
-                        Text("Repetition \(value.repetition)")
+                    Text(store.parameter(effect.parameterID)?.name ?? "—")
+                    if repetition > 1 {
+                        Text("Repetition \(repetition)")
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -194,55 +201,58 @@ private struct ValueRow: View {
                     .foregroundStyle(.red)
                     .help("Outside the limit")
             }
-            Text(store.format(value.reading, actionVariable))
+            Text(store.format(raw))
                 .monospacedDigit()
                 .fontWeight(exceeds ? .semibold : .regular)
                 .foregroundStyle(exceeds ? .red : .primary)
             Button {
-                store.perform { try await store.setAccepted(!value.accepted, value: value) }
+                store.perform { try await store.setAccepted(!raw.accepted, rawValue: raw) }
             } label: {
-                Image(systemName: value.accepted ? "checkmark.seal.fill" : "seal")
-                    .foregroundStyle(value.accepted ? Color.green : Color.secondary)
+                Image(systemName: raw.accepted ? "checkmark.seal.fill" : "seal")
+                    .foregroundStyle(raw.accepted ? Color.green : Color.secondary)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.borderless)
-            .disabled(!store.can(.reviewer))
+            .disabled(!store.can(.reviewer) || (ownReading && !raw.accepted))
             .help(!store.can(.reviewer) ? "Needs the reviewer role"
-                  : value.accepted ? "Accepted. Click to withdraw." : "Accept this value")
+                  : raw.accepted ? "Accepted. Click to withdraw."
+                  : ownReading ? "You measured this, so someone else has to accept it" : "Accept this raw value")
         }
     }
 
     private var detail: String {
         var parts: [String] = []
-        if let uncertainty = store.uncertaintyText(actionVariable) { parts.append(uncertainty) }
-        if let limit = store.limitPhrase(actionVariable) { parts.append(limit) }
-        if let measuredAt = value.measuredAt { parts.append(measuredAt.formatted(date: .numeric, time: .shortened)) }
-        if let person = store.person(value.personID) { parts.append(person.unixAccount) }
+        if let uncertainty = store.uncertaintyText(effect) { parts.append(uncertainty) }
+        if let limit = store.limitPhrase(effect) { parts.append(limit) }
+        // A sampling time is its own t; showing it twice says nothing.
+        if let t = raw.t, raw.reading != .datetime(t) { parts.append(t.formatted(date: .numeric, time: .shortened)) }
+        if let person = store.person(raw.personID) { parts.append(person.linuxUser) }
         return parts.joined(separator: " · ")
     }
 }
 
-/// A value still to be measured, with a field to record it.
+/// A value without readings yet, with a field to record the first.
 private struct PendingValueRow: View {
     @Environment(LabStore.self) private var store
-    let collectionID: Int
-    let actionVariable: ActionVariable
+    let value: LabValue
+    let effect: Effect
     @State private var text = ""
+    @State private var date = Date.now
 
     var body: some View {
-        let variable = store.variable(actionVariable.variableID)
+        let parameter = store.parameter(effect.parameterID)
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(variable?.name ?? "—")
+                Text(parameter?.name ?? "—")
                 Text("Pending")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
             Spacer()
             if !store.can(.analyst) {
-                Text("—").foregroundStyle(.tertiary).help("Recording values needs the analyst role")
+                Text("—").foregroundStyle(.tertiary).help("Recording raw values needs the analyst role")
             } else {
-            switch variable?.valueClass ?? .decimal {
+            switch parameter?.valueClass ?? .decimal {
             case .boolean:
                 Button("No") { record(.boolean(false)) }
                 Button("Yes") { record(.boolean(true)) }
@@ -259,14 +269,18 @@ private struct PendingValueRow: View {
                             record(.decimal(number))
                         }
                     }
-                Text(store.unit(actionVariable.unitID)?.symbol ?? "")
+                Text(store.unit(parameter?.unitID)?.symbol ?? "")
                     .foregroundStyle(.secondary)
-            case .text, .datetime:
+            case .text:
                 TextField("Value", text: $text, prompt: Text("Value"))
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 140)
                     .onSubmit { if !text.isEmpty { record(.text(text)) } }
+            case .datetime:
+                DatePicker("Value", selection: $date)
+                    .labelsHidden()
+                Button("Record") { record(.datetime(date)) }
             }
             }
         }
@@ -275,7 +289,7 @@ private struct PendingValueRow: View {
     }
 
     private func record(_ reading: Reading) {
-        store.perform { try await store.record(reading, for: actionVariable, in: collectionID) }
+        store.perform { try await store.record(reading, for: value) }
     }
 }
 
@@ -285,9 +299,9 @@ private struct ActionProgressRow: View {
     let collection: LabCollection
 
     var body: some View {
-        let variables = store.actionVariables(of: action)
-        let measured = variables.filter { !store.values(of: collection.id, for: $0).isEmpty }.count
-        let done = measured == variables.count
+        let values = store.values(of: collection.id, for: action)
+        let measured = values.filter { !store.rawValues(of: $0).isEmpty }.count
+        let done = measured == values.count
 
         Section {
             NavigationLink(value: Route.method(action.id)) {
@@ -297,7 +311,7 @@ private struct ActionProgressRow: View {
                         .foregroundStyle(done ? Color.green : measured > 0 ? Color.orange : Color.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(action.name)
-                        Text("\(action.standard) · \(measured) of \(variables.count) values")
+                        Text(summary(measured: measured, planned: values.count))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -307,12 +321,18 @@ private struct ActionProgressRow: View {
                 LabeledContent("Device", value: device.name)
             }
             ForEach(action.people, id: \.self) { assignment in
-                LabeledContent(assignment.role, value: store.person(assignment.personID)?.fullName ?? "—")
+                LabeledContent(assignment.role.capitalized, value: store.person(assignment.personID)?.fullName ?? "—")
             }
-            if !action.dependsOn.isEmpty {
-                LabeledContent("Requires",
-                               value: action.dependsOn.compactMap { store.action($0)?.name }.formatted(.list(type: .and)))
+            let required = action.dependencies.filter { $0.kind == .strict }.compactMap { store.action($0.actionID)?.name }
+            if !required.isEmpty {
+                LabeledContent("Requires", value: required.formatted(.list(type: .and)))
             }
         }
+    }
+
+    private func summary(measured: Int, planned: Int) -> String {
+        let progress = String(localized: "\(measured) of \(planned) values")
+        guard let sop = action.documentIDs.compactMap({ store.document($0) }).first else { return progress }
+        return "\(sop.name) · \(progress)"
     }
 }

@@ -16,19 +16,14 @@ struct DevicesView: View {
             }
             .width(min: 180, ideal: 240)
             TableColumn("Number") { device in
-                Text(device.number).monospaced()
+                Text(String(device.number)).monospaced()
             }
             .width(min: 110, ideal: 130)
             TableColumn("Manufacturer") { device in
                 Text(store.organization(device.manufacturerID)?.name ?? "—")
             }
             TableColumn("Operator") { device in
-                if let person = store.person(device.operatorID) {
-                    HStack(spacing: 6) {
-                        Avatar(person: person, size: 20)
-                        Text(person.fullName)
-                    }
-                }
+                Text(store.organization(device.operatorID)?.name ?? "—")
             }
             TableColumn("Methods") { device in
                 Text(store.actions(using: device).map(\.name).formatted(.list(type: .and)))

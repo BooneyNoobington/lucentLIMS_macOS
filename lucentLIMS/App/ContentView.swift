@@ -77,11 +77,11 @@ struct ContentView: View {
         case .collections: CollectionsView()
         case .locations: LocationsView()
         case .methods: MethodsView()
-        case .variables: CatalogView()
+        case .parameters: CatalogView()
         case .people: PeopleView()
         case .devices: DevicesView()
         case .tasks: TasksView()
-        case .sops: SOPsView()
+        case .documents: DocumentsView()
         }
     }
 }
@@ -101,8 +101,8 @@ struct RouteView: View {
             if let action = store.action(id) { MethodDetailView(action: action) }
         case .person(let id):
             if let person = store.person(id) { PersonDetailView(person: person) }
-        case .sop(let id):
-            if let sop = store.sop(id) { SOPDetailView(sop: sop) }
+        case .document(let id):
+            if let document = store.document(id) { DocumentDetailView(document: document) }
         }
     }
 }
@@ -129,13 +129,13 @@ private struct Sidebar: View {
             }
             Section("Scientific") {
                 row(.methods)
-                row(.variables)
+                row(.parameters)
             }
             Section("Management") {
                 row(.people)
                 row(.devices)
                 row(.tasks, badge: store.tasks.filter { store.isOverdue($0) }.count)
-                row(.sops)
+                row(.documents)
             }
         }
         #if os(macOS)

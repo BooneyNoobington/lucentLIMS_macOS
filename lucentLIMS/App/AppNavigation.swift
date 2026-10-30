@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The sections of the sidebar, grouped as in lucentAndShiny.
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, collections, locations, methods, variables, people, devices, tasks, sops
+    case dashboard, collections, locations, methods, parameters, people, devices, tasks, documents
 
     var id: String { rawValue }
 
@@ -12,11 +12,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .collections: String(localized: "Collections")
         case .locations: String(localized: "Locations")
         case .methods: String(localized: "Methods")
-        case .variables: String(localized: "Variables & Units")
+        case .parameters: String(localized: "Parameters & Units")
         case .people: String(localized: "People")
         case .devices: String(localized: "Devices")
         case .tasks: String(localized: "Tasks")
-        case .sops: String(localized: "SOPs")
+        case .documents: String(localized: "Documents")
         }
     }
 
@@ -26,11 +26,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .collections: "testtube.2"
         case .locations: "map"
         case .methods: "flask"
-        case .variables: "atom"
+        case .parameters: "atom"
         case .people: "person.2"
         case .devices: "gauge.with.needle"
         case .tasks: "checklist"
-        case .sops: "doc.text"
+        case .documents: "doc.text"
         }
     }
 }
@@ -40,7 +40,7 @@ enum Route: Hashable {
     case collection(Int)
     case method(Int)
     case person(Int)
-    case sop(Int)
+    case document(Int)
 }
 
 /// Navigation state of one window.
@@ -114,7 +114,7 @@ extension AppNavigation {
             case "collection": path = [.collection(id)]
             case "method": path = [.method(id)]
             case "person": path = [.person(id)]
-            case "sop": path = [.sop(id)]
+            case "document": path = [.document(id)]
             default: break
             }
         }

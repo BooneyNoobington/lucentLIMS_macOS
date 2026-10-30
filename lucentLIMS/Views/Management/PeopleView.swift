@@ -47,7 +47,7 @@ private struct PersonRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(person.unixAccount)
+            Text(person.linuxUser)
                 .font(.callout.monospaced())
                 .foregroundStyle(.secondary)
         }
@@ -62,7 +62,6 @@ struct PersonDetailView: View {
     var body: some View {
         let tasks = store.tasks.filter { $0.assigneeID == person.id && !$0.done }.sorted { $0.deadline < $1.deadline }
         let sampled = store.collections.filter { $0.sampledByID == person.id }.sorted { $0.sampledAt > $1.sampledAt }
-        let devices = store.devices.filter { $0.operatorID == person.id }
 
         Form {
             Section {
@@ -79,8 +78,8 @@ struct PersonDetailView: View {
                     }
                 }
                 .padding(.vertical, 6)
-                LabeledContent("Unix account") {
-                    Text(person.unixAccount).monospaced()
+                LabeledContent("Linux user") {
+                    Text(person.linuxUser).monospaced()
                 }
             }
 
@@ -89,27 +88,8 @@ struct PersonDetailView: View {
                 Section("Methods") {
                     ForEach(actions, id: \.action.id) { item in
                         NavigationLink(value: Route.method(item.action.id)) {
-                            LabeledContent(item.action.name, value: item.role)
+                            LabeledContent(item.action.name, value: item.role.capitalized)
                         }
-                    }
-                }
-            }
-
-            let sops = store.sops(involving: person)
-            if !sops.isEmpty {
-                Section("SOPs") {
-                    ForEach(sops, id: \.sop.id) { item in
-                        NavigationLink(value: Route.sop(item.sop.id)) {
-                            LabeledContent(item.sop.name, value: item.role)
-                        }
-                    }
-                }
-            }
-
-            if !devices.isEmpty {
-                Section("Operates") {
-                    ForEach(devices) { device in
-                        LabeledContent(device.name) { Text(device.number).monospaced() }
                     }
                 }
             }

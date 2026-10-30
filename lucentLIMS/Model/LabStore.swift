@@ -3,6 +3,10 @@ import Observation
 
 /// The app's data, as the views see it. It is loaded from a `LabService` (the demo data or
 /// lucentAPI) and sends changes there, replacing its copies with what comes back.
+///
+/// The rules follow lucentBASE: a collection's values are its planned effects; their raw
+/// values are the readings. The limits of a raw value are the thresholds of its parameter in
+/// the documents of its action.
 @MainActor
 @Observable
 final class LabStore {
@@ -17,13 +21,16 @@ final class LabStore {
     let sites: [Site]
     let spots: [Spot]
     let matrices: [Matrix]
-    let collectionClasses: [CollectionClass]
+    let collectionClasses: [String]
     let dimensions: [PhysicalDimension]
     let units: [LabUnit]
-    let variables: [Variable]
-    let sops: [SOP]
+    let parameters: [Parameter]
+    let documents: [Document]
     let actions: [LabAction]
-    let actionVariables: [ActionVariable]
+    let effects: [Effect]
+    let thresholds: [Threshold]
+    let coefficients: [Coefficient]
+    let samplingTimeParameterID: Int?
     let currentUser: Person
     let roles: Set<LabRole>
     let service: any LabService
@@ -35,22 +42,21 @@ final class LabStore {
     var devices: [Device]
     private(set) var collections: [LabCollection]
     private(set) var valuesByCollection: [Int: [LabValue]]
+    private(set) var rawValuesByValue: [Int: [RawValue]]
     var tasks: [LabTask]
     var messages: [Message]
 
-    private let classActions: [Int: [Int]]
     private let organizationsByID: [Int: Organization]
     private let peopleByID: [Int: Person]
     private let sitesByID: [Int: Site]
     private let spotsByID: [Int: Spot]
     private let matricesByID: [Int: Matrix]
-    private let classesByID: [Int: CollectionClass]
     private let dimensionsByID: [Int: PhysicalDimension]
     private let unitsByID: [Int: LabUnit]
-    private let variablesByID: [Int: Variable]
-    private let sopsByID: [Int: SOP]
+    private let parametersByID: [Int: Parameter]
+    private let documentsByID: [Int: Document]
     private let actionsByID: [Int: LabAction]
-    private let actionVariablesByID: [Int: ActionVariable]
+    private let effectsByID: [Int: Effect]
 
     init(snapshot: LabSnapshot, service: any LabService, now: Date = .now, calendar: Calendar = .current) {
         let data = snapshot.data
@@ -68,31 +74,34 @@ final class LabStore {
         collectionClasses = data.collectionClasses
         dimensions = data.dimensions
         units = data.units
-        variables = data.variables
-        sops = data.sops
+        parameters = data.parameters
+        documents = data.documents
         actions = data.actions
-        actionVariables = data.actionVariables
+        effects = data.effects
+        thresholds = data.thresholds
+        coefficients = data.coefficients
+        samplingTimeParameterID = data.samplingTimeParameterID
         devices = data.devices
         collections = data.collections
         valuesByCollection = Dictionary(grouping: data.values, by: \.collectionID)
+        rawValuesByValue = Dictionary(grouping: data.rawValues, by: \.valueID)
+            .mapValues { $0.sorted { ($0.t ?? .distantPast, $0.id) < ($1.t ?? .distantPast, $1.id) } }
         tasks = data.tasks
         messages = data.messages
-        classActions = data.classActions
         currentUser = data.people.first { $0.id == snapshot.currentUserID }
-            ?? Person(id: snapshot.currentUserID, givenName: "", surname: "?", unixAccount: "")
+            ?? Person(id: snapshot.currentUserID, givenName: "", surname: "?", linuxUser: "")
 
         organizationsByID = Self.index(data.organizations)
         peopleByID = Self.index(data.people)
         sitesByID = Self.index(data.sites)
         spotsByID = Self.index(data.spots)
         matricesByID = Self.index(data.matrices)
-        classesByID = Self.index(data.collectionClasses)
         dimensionsByID = Self.index(data.dimensions)
         unitsByID = Self.index(data.units)
-        variablesByID = Self.index(data.variables)
-        sopsByID = Self.index(data.sops)
+        parametersByID = Self.index(data.parameters)
+        documentsByID = Self.index(data.documents)
         actionsByID = Self.index(data.actions)
-        actionVariablesByID = Self.index(data.actionVariables)
+        effectsByID = Self.index(data.effects)
     }
 
     /// The demo data. Like lucentAndShiny, the user is whoever is logged in to the machine.
@@ -108,7 +117,7 @@ final class LabStore {
     var isDemo: Bool { service is MockLabService }
 
     private static func index<T: Identifiable>(_ items: [T]) -> [Int: T] where T.ID == Int {
-        Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     // MARK: Lookups
@@ -118,13 +127,12 @@ final class LabStore {
     func site(_ id: Int?) -> Site? { id.flatMap { sitesByID[$0] } }
     func spot(_ id: Int?) -> Spot? { id.flatMap { spotsByID[$0] } }
     func matrix(_ id: Int?) -> Matrix? { id.flatMap { matricesByID[$0] } }
-    func collectionClass(_ id: Int?) -> CollectionClass? { id.flatMap { classesByID[$0] } }
     func dimension(_ id: Int?) -> PhysicalDimension? { id.flatMap { dimensionsByID[$0] } }
     func unit(_ id: Int?) -> LabUnit? { id.flatMap { unitsByID[$0] } }
-    func variable(_ id: Int?) -> Variable? { id.flatMap { variablesByID[$0] } }
-    func sop(_ id: Int?) -> SOP? { id.flatMap { sopsByID[$0] } }
+    func parameter(_ id: Int?) -> Parameter? { id.flatMap { parametersByID[$0] } }
+    func document(_ id: Int?) -> Document? { id.flatMap { documentsByID[$0] } }
     func action(_ id: Int?) -> LabAction? { id.flatMap { actionsByID[$0] } }
-    func actionVariable(_ id: Int?) -> ActionVariable? { id.flatMap { actionVariablesByID[$0] } }
+    func effect(_ id: Int?) -> Effect? { id.flatMap { effectsByID[$0] } }
     func device(_ id: Int?) -> Device? { id.flatMap { id in devices.first { $0.id == id } } }
     func collection(_ id: Int?) -> LabCollection? { id.flatMap { id in collections.first { $0.id == id } } }
     func referenceSystem(_ id: Int?) -> CRS? { id.flatMap { id in crs.first { $0.id == id } } }
@@ -133,26 +141,19 @@ final class LabStore {
         people.filter { $0.organizationID == organization.id }
     }
 
-    // MARK: Methods
+    /// The parameter an effect yields.
+    func parameter(of effect: Effect) -> Parameter? { parameter(effect.parameterID) }
 
-    func actions(forClass classID: Int) -> [LabAction] {
-        (classActions[classID] ?? []).compactMap { actionsByID[$0] }
-    }
+    // MARK: Actions
 
-    func classes(using action: LabAction) -> [CollectionClass] {
-        collectionClasses.filter { classActions[$0.id]?.contains(action.id) == true }
-    }
+    func effects(of action: LabAction) -> [Effect] { effects.filter { $0.actionID == action.id } }
 
-    func actionVariables(of action: LabAction) -> [ActionVariable] {
-        actionVariables.filter { $0.actionID == action.id }
-    }
+    func effects(of parameter: Parameter) -> [Effect] { effects.filter { $0.parameterID == parameter.id } }
 
-    func actionVariables(of variable: Variable) -> [ActionVariable] {
-        actionVariables.filter { $0.variableID == variable.id }
-    }
+    func actions(using device: Device) -> [LabAction] { actions.filter { $0.deviceIDs.contains(device.id) } }
 
-    func actions(using device: Device) -> [LabAction] {
-        actions.filter { $0.deviceIDs.contains(device.id) }
+    func actions(referringTo document: Document) -> [LabAction] {
+        actions.filter { $0.documentIDs.contains(document.id) }
     }
 
     func actions(involving person: Person) -> [(action: LabAction, role: String)] {
@@ -161,44 +162,54 @@ final class LabStore {
         }
     }
 
-    func sops(involving person: Person) -> [(sop: SOP, role: String)] {
-        sops.flatMap { sop in sop.people.filter { $0.personID == person.id }.map { (sop, $0.role) } }
+    /// The limits that apply to an effect's raw values: the thresholds of its parameter in the
+    /// documents of its action.
+    func limits(of effect: Effect) -> [Threshold] {
+        let documents = Set(action(effect.actionID)?.documentIDs ?? [])
+        return thresholds.filter { $0.parameterID == effect.parameterID && documents.contains($0.documentID) }
     }
 
-    func actions(following sop: SOP) -> [LabAction] {
-        actions.filter { $0.sopID == sop.id }
+    func exceeds(_ raw: RawValue, of effect: Effect) -> Bool {
+        guard let number = raw.reading?.number else { return false }
+        return limits(of: effect).contains { $0.excludes(number) }
     }
 
     // MARK: Collections
 
-    func plannedVariables(for collection: LabCollection) -> [ActionVariable] {
-        actions(forClass: collection.classID).flatMap(actionVariables(of:))
+    func values(of collectionID: Int) -> [LabValue] { valuesByCollection[collectionID] ?? [] }
+
+    func rawValues(of value: LabValue) -> [RawValue] { rawValuesByValue[value.id] ?? [] }
+
+    /// The collection's values for the effects of an action.
+    func values(of collectionID: Int, for action: LabAction) -> [LabValue] {
+        values(of: collectionID).filter { effect($0.effectID)?.actionID == action.id }
     }
 
-    func values(of collectionID: Int) -> [LabValue] {
-        valuesByCollection[collectionID] ?? []
-    }
-
-    func values(of collectionID: Int, for actionVariable: ActionVariable) -> [LabValue] {
-        values(of: collectionID).filter { $0.actionVariableID == actionVariable.id }.sorted { $0.repetition < $1.repetition }
+    /// The actions with at least one value in the collection, in action order.
+    func plannedActions(of collection: LabCollection) -> [LabAction] {
+        let ids = Set(values(of: collection.id).compactMap { effect($0.effectID)?.actionID })
+        return actions.filter { ids.contains($0.id) }
     }
 
     func progress(of collection: LabCollection) -> (measured: Int, planned: Int) {
-        let planned = Set(plannedVariables(for: collection).map(\.id))
-        let measured = Set(values(of: collection.id).map(\.actionVariableID)).intersection(planned)
-        return (measured.count, planned.count)
+        let values = values(of: collection.id)
+        return (values.filter { !rawValues(of: $0).isEmpty }.count, values.count)
     }
 
     func status(of collection: LabCollection) -> CollectionStatus {
         let (measured, planned) = progress(of: collection)
         if measured == 0 { return .registered }
         if measured < planned { return .inAnalysis }
-        return values(of: collection.id).allSatisfy(\.accepted) ? .approved : .inReview
+        let all = values(of: collection.id).flatMap { rawValues(of: $0) }
+        return all.allSatisfy(\.accepted) ? .approved : .inReview
     }
 
-    func exceedances(of collectionID: Int) -> [LabValue] {
-        values(of: collectionID).filter { value in
-            actionVariable(value.actionVariableID)?.exceeds(value.reading) == true
+    /// The collection's raw values outside their limits, with their values and effects.
+    func exceedances(of collection: LabCollection) -> [Exceedance] {
+        values(of: collection.id).flatMap { value -> [Exceedance] in
+            guard let effect = effect(value.effectID) else { return [] }
+            return rawValues(of: value).filter { exceeds($0, of: effect) }
+                .map { Exceedance(raw: $0, value: value, collection: collection, effect: effect) }
         }
     }
 
@@ -215,14 +226,13 @@ final class LabStore {
     func rows() -> [CollectionRow] {
         collections.map { collection in
             let (measured, planned) = progress(of: collection)
-            let matrix = self.matrix(collection.matrixID)
             return CollectionRow(
                 id: collection.id,
                 name: collection.name,
                 sequence: numbering.sequence(of: collection.name) ?? collection.id,
-                matrix: matrix?.name ?? "—",
+                matrix: matrix(collection.matrixID)?.name ?? "—",
                 matrixID: collection.matrixID,
-                collectionClass: collectionClass(collection.classID)?.name ?? "—",
+                collectionClass: collection.collectionClass,
                 location: locationName(of: collection),
                 isSite: collection.spotID == nil,
                 sampledAt: collection.sampledAt,
@@ -230,7 +240,7 @@ final class LabStore {
                 status: status(of: collection),
                 measured: measured,
                 planned: planned,
-                exceedances: exceedances(of: collection.id).count
+                exceedances: exceedances(of: collection).count
             )
         }
     }
@@ -262,18 +272,24 @@ final class LabStore {
         return matrix(counts.max { $0.value < $1.value }?.key)
     }
 
-    /// Numeric variables measured at a location, in method order.
-    func measuredVariables(at location: LocationRef) -> [ActionVariable] {
-        let ids = Set(collections(at: location).flatMap { values(of: $0.id) }.map(\.actionVariableID))
-        return actionVariables.filter { ids.contains($0.id) && variable($0.variableID)?.valueClass == .decimal }
+    /// Numeric parameters with readings at a location.
+    func measuredParameters(at location: LocationRef) -> [Parameter] {
+        let ids = Set(collections(at: location).flatMap { values(of: $0.id) }
+            .filter { !rawValues(of: $0).isEmpty }
+            .compactMap { effect($0.effectID)?.parameterID })
+        return parameters.filter { ids.contains($0.id) && $0.valueClass == .decimal }
     }
 
-    func series(at location: LocationRef, for actionVariable: ActionVariable) -> [SeriesPoint] {
+    /// A parameter over time at a location: the latest reading per collection.
+    func series(at location: LocationRef, for parameter: Parameter) -> [SeriesPoint] {
         collections(at: location).compactMap { collection in
-            let values = self.values(of: collection.id, for: actionVariable)
-            guard let value = values.last, let number = value.reading.number else { return nil }
-            return SeriesPoint(id: value.id, collectionID: collection.id, date: collection.sampledAt,
-                               value: number, exceeded: actionVariable.exceeds(value.reading))
+            for value in values(of: collection.id) {
+                guard let effect = effect(value.effectID), effect.parameterID == parameter.id,
+                      let raw = rawValues(of: value).last, let number = raw.reading?.number else { continue }
+                return SeriesPoint(id: raw.id, collectionID: collection.id, date: collection.sampledAt, value: number,
+                                   exceeded: exceeds(raw, of: effect), limits: limits(of: effect))
+            }
+            return nil
         }
         .sorted { $0.date < $1.date }
     }
@@ -298,19 +314,14 @@ final class LabStore {
         collections.filter { interval.contains($0.sampledAt) }
     }
 
-    /// Values above or below their limits in the last `days` days, newest first.
+    /// Readings outside their limits in the last `days` days, newest first; one per value.
     func recentExceedances(days: Int = 30) -> [Exceedance] {
         let since = now.addingTimeInterval(-Double(days) * 86_400)
-        return collections.filter { $0.sampledAt >= since }.flatMap { collection in
-            exceedances(of: collection.id)
-                .filter { $0.repetition == 1 }
-                .compactMap { value in
-                    actionVariable(value.actionVariableID).map {
-                        Exceedance(value: value, collection: collection, actionVariable: $0)
-                    }
-                }
-        }
-        .sorted { $0.collection.sampledAt > $1.collection.sampledAt }
+        return collections.filter { $0.sampledAt >= since }
+            .flatMap { collection in
+                Dictionary(grouping: exceedances(of: collection), by: \.value.id).values.compactMap(\.first)
+            }
+            .sorted { ($0.collection.sampledAt, $0.raw.id) > ($1.collection.sampledAt, $1.raw.id) }
     }
 
     var openTasks: [LabTask] { tasks.filter { !$0.done }.sorted { $0.deadline < $1.deadline } }
@@ -335,29 +346,32 @@ final class LabStore {
     }
 
     @discardableResult
-    func registerCollection(matrixID: Int, classID: Int, spotID: Int?, siteID: Int?,
-                            sampledAt: Date, sampledByID: Int) async throws -> LabCollection {
-        let collection = try await service.register(NewCollection(
-            matrixID: matrixID, classID: classID, spotID: spotID, siteID: siteID,
-            sampledAt: sampledAt, sampledByID: sampledByID))
-        collections.append(collection)
-        return collection
+    func registerCollection(_ new: NewCollection) async throws -> LabCollection {
+        let registration = try await service.register(new)
+        collections.append(registration.collection)
+        valuesByCollection[registration.collection.id] = registration.values
+        for raw in registration.rawValues { rawValuesByValue[raw.valueID, default: []].append(raw) }
+        return registration.collection
     }
 
-    func record(_ reading: Reading, for actionVariable: ActionVariable, in collectionID: Int) async throws {
-        let value = try await service.record(reading, for: actionVariable, in: collectionID)
-        valuesByCollection[collectionID, default: []].append(value)
+    func record(_ reading: Reading, for value: LabValue) async throws {
+        let raw = try await service.record(reading, for: value)
+        rawValuesByValue[value.id, default: []].append(raw)
     }
 
-    func setAccepted(_ accepted: Bool, value: LabValue) async throws {
-        let changed = try await service.setAccepted(accepted, value: value)
-        guard let index = valuesByCollection[changed.collectionID]?.firstIndex(where: { $0.id == changed.id }) else { return }
-        valuesByCollection[changed.collectionID]?[index] = changed
+    func setAccepted(_ accepted: Bool, rawValue: RawValue) async throws {
+        replace(try await service.setAccepted(accepted, rawValue: rawValue))
     }
 
     func acceptAll(in collectionIDs: [Int]) async throws {
         for id in collectionIDs {
-            valuesByCollection[id] = try await service.acceptAll(in: id)
+            for raw in try await service.acceptAll(in: id) { replace(raw) }
+        }
+    }
+
+    private func replace(_ raw: RawValue) {
+        if let index = rawValuesByValue[raw.valueID]?.firstIndex(where: { $0.id == raw.id }) {
+            rawValuesByValue[raw.valueID]?[index] = raw
         }
     }
 
@@ -404,6 +418,7 @@ struct SeriesPoint: Identifiable, Hashable {
     let date: Date
     let value: Double
     let exceeded: Bool
+    let limits: [Threshold]
 }
 
 struct WeeklyCount: Identifiable, Hashable {
@@ -420,9 +435,10 @@ struct WeeklyCount: Identifiable, Hashable {
 }
 
 struct Exceedance: Identifiable, Hashable {
+    let raw: RawValue
     let value: LabValue
     let collection: LabCollection
-    let actionVariable: ActionVariable
+    let effect: Effect
 
-    var id: Int { value.id }
+    var id: Int { raw.id }
 }

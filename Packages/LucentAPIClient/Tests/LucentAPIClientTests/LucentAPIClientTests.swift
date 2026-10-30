@@ -36,52 +36,66 @@ func json(_ request: URLRequest?) throws -> [String: Any] {
     return try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
 }
 
+/// 2026-10-29T09:30:00Z
+let sampledAt = Date(timeIntervalSince1970: 1_793_266_200)
+
 struct DecodingTests {
     let decoder = LucentAPIClient.decoder
 
     @Test func referenceData() throws {
-        #expect(try decoder.decode([LucentAPI.Person].self, from: fixture("people")).count == 6)
+        let people = try decoder.decode([LucentAPI.Person].self, from: fixture("people"))
+        #expect(people.count == 6 && people.contains { $0.linuxUser == "grindel" && $0.givenName == "System" })
         #expect(try decoder.decode([LucentAPI.Organization].self, from: fixture("organizations")).count == 6)
         #expect(try decoder.decode([LucentAPI.ReferenceSystem].self, from: fixture("crs")).first?.epsg == 4326)
         #expect(try decoder.decode([LucentAPI.Matrix].self, from: fixture("matrices")).count == 4)
-        #expect(try decoder.decode([LucentAPI.Dimension].self, from: fixture("dimensions")).count == 5)
-        #expect(try decoder.decode([LucentAPI.Variable].self, from: fixture("variables")).last?.valueClass == .boolean)
-        #expect(try decoder.decode([LucentAPI.Device].self, from: fixture("devices")).allSatisfy { !$0.etag.isEmpty })
+        #expect(try decoder.decode([LucentAPI.Dimension].self, from: fixture("dimensions")).count == 4)
+        #expect(try decoder.decode([String].self, from: fixture("collection-classes")).contains("time series"))
+        let parameters = try decoder.decode([LucentAPI.Parameter].self, from: fixture("parameters"))
+        #expect(parameters.first?.valueClass == .datetime && parameters.count == 17)
+        let devices = try decoder.decode([LucentAPI.Device].self, from: fixture("devices"))
+        #expect(devices.allSatisfy { !$0.etag.isEmpty } && devices.contains { $0.number == 2207114 })
         #expect(try decoder.decode([LucentAPI.Task].self, from: fixture("tasks")).isEmpty == false)
-        #expect(try decoder.decode([LucentAPI.Message].self, from: fixture("messages")).first?.read == false)
+        #expect(try decoder.decode([LucentAPI.Message].self, from: fixture("messages")).first?.sentAt != nil)
         #expect(try decoder.decode(LucentAPI.Me.self, from: fixture("me")).roles == [])
+        #expect(try decoder.decode(LucentAPI.Configuration.self, from: fixture("configuration")).samplingTimeParameterId == 1)
     }
 
-    @Test func nestedCatalog() throws {
-        let classes = try decoder.decode([LucentAPI.CollectionClass].self, from: fixture("collection-classes"))
-        #expect(classes.first { $0.id == 2 }?.actionIds == [8, 9])
-        let units = try decoder.decode([LucentAPI.Unit].self, from: fixture("units"))
-        #expect(units.first { $0.id == 3 }?.notations == ["µS/cm", "µS cm⁻¹"])
+    @Test func actionsDocumentsAndThresholds() throws {
         let actions = try decoder.decode([LucentAPI.Action].self, from: fixture("actions"))
         let anions = try #require(actions.first { $0.id == 5 })
-        #expect(anions.variables.map(\.variableId) == [4, 5, 6])
-        #expect(anions.variables.first?.upperLimit == 50)
-        #expect(anions.dependsOn == [1] && anions.implies == [4])
-        let sops = try decoder.decode([LucentAPI.SOP].self, from: fixture("sops"))
-        #expect(sops.first { $0.id == 4 }?.documents.count == 2)
+        #expect(anions.effects.map(\.parameterId) == [7, 8, 9])
+        #expect(anions.documentIds == [4, 11, 12, 13])
+        #expect(anions.dependencies.map(\.dependencyClass) == ["strict", "possibility"])
+        #expect(anions.iteration == Date(timeIntervalSince1970: 1_738_368_000))  // 2025-02-01
+        let documents = try decoder.decode([LucentAPI.Document].self, from: fixture("documents"))
+        #expect(documents.first { $0.id == 12 }?.actionIds == [1, 2, 3, 4, 5, 6, 7])
+        let thresholds = try decoder.decode([LucentAPI.Threshold].self, from: fixture("thresholds"))
+        #expect(thresholds.contains { $0.parameterId == 7 && $0.documentId == 12 && $0.upperLimit == 50 })
+        #expect(try decoder.decode([LucentAPI.Coefficient].self, from: fixture("coefficients")).count == 1)
+        let units = try decoder.decode([LucentAPI.Unit].self, from: fixture("units"))
+        #expect(units.first { $0.id == 2 }?.notations == ["µS/cm", "µS cm⁻¹"])
     }
 
     @Test func locations() throws {
         let sites = try decoder.decode([LucentAPI.Site].self, from: fixture("sites"))
         let works = try #require(sites.first { $0.id == 2 })
-        #expect(works.address?.city == "Karlsruhe")
+        #expect(works.address?.city == "Karlsruhe" && works.address?.houseNumber == 1)
         #expect(works.border.first == LucentAPI.GeoPoint(latitude: 48.999, longitude: 8.451))
         let spots = try decoder.decode([LucentAPI.Spot].self, from: fixture("spots"))
         #expect(spots.first { $0.name == "Garten" }?.x == 49.006097)
     }
 
-    @Test func collectionWithValues() throws {
+    @Test func collectionWithValuesAndRawValues() throws {
         let detail = try decoder.decode(LucentAPI.CollectionDetail.self, from: fixture("collection"))
         #expect(detail.collection.status == .inAnalysis)
-        #expect(detail.collection.sampledAt == Date(timeIntervalSince1970: 1_793_266_200))  // 2026-10-29T09:30:00Z
-        #expect(detail.values.map(\.repetition) == [1, 2])
-        #expect(detail.values.first?.reading == .decimal(12.4))
-        #expect(detail.values.allSatisfy { $0.exceeds })
+        #expect(detail.collection.sampledAt == sampledAt)
+        #expect(detail.collection.collectionClass == "spot sample")
+        let lead = try #require(detail.values.first { $0.effectId == 10 })
+        #expect(lead.limits.map(\.documentId) == [12, 13])
+        #expect(lead.rawValues.map(\.reading) == [.decimal(12.4), .decimal(11.9)])
+        #expect(lead.rawValues.allSatisfy { $0.exceeds })
+        let planned = try #require(detail.values.first { $0.effectId == 2 })
+        #expect(planned.rawValues.isEmpty)
 
         let page = try decoder.decode(LucentAPI.Page<LucentAPI.Collection>.self, from: fixture("collections"))
         #expect(page.items.count == 3 && page.total > 3)
@@ -126,31 +140,33 @@ struct DecodingTests {
         let server = FakeServer()
         await server.respond(201, with: "collection-created")
         let created = try await client(server).registerCollection(.init(
-            matrixId: 9, classId: 3, spotId: 4, sampledAt: Date(timeIntervalSince1970: 1_793_266_200), note: "Example"))
+            matrixId: 2, collectionClass: "spot sample", spotId: 4, actionIds: [1, 6], sampledAt: sampledAt,
+            note: "Example"))
         #expect(created.collection.name == "1·Blue·6·Phi")
         let request = await server.last
         #expect(request?.httpMethod == "POST")
         #expect(request?.url?.path == "/v1/collections")
         let body = try json(request)
-        #expect(body["matrix_id"] as? Int == 9 && body["spot_id"] as? Int == 4)
+        #expect(body["matrix_id"] as? Int == 2 && body["spot_id"] as? Int == 4)
+        #expect(body["collection_class"] as? String == "spot sample")
+        #expect(body["action_ids"] as? [Int] == [1, 6])
         #expect(body["sampled_at"] as? String == "2026-10-29T09:30:00Z")
         #expect(body["site_id"] == nil)
     }
 
-    @Test func recordValue() async throws {
+    @Test func recordRawValue() async throws {
         let server = FakeServer()
-        await server.respond(201, with: "value-recorded")
-        let value = try await client(server).recordValue(.init(actionVariableId: 9, reading: .decimal(11.9)), in: 44)
-        #expect(value.repetition == 2)
+        await server.respond(201, with: "raw-value-recorded")
+        let raw = try await client(server).recordRawValue(.init(reading: .decimal(11.9)), for: 293)
+        #expect(raw.reading == .decimal(11.9) && raw.exceeds)
         let body = try json(await server.last)
-        #expect(body["action_variable_id"] as? Int == 9)
         #expect((body["reading"] as? [String: Double]) == ["decimal": 11.9])
-        #expect(await server.last?.url?.path == "/v1/collections/44/values")
+        #expect(await server.last?.url?.path == "/v1/values/293/raw-values")
     }
 
     @Test func updateTaskSendsIfMatch() async throws {
         let server = FakeServer()
-        await server.respond(200, with: "value-recorded")  // the body doesn't matter here
+        await server.respond(200, with: "raw-value-recorded")  // the body doesn't matter here
         _ = try? await client(server).updateTask(id: 3, etag: "\"abc\"", .init(done: true))
         let request = await server.last
         #expect(request?.httpMethod == "PATCH")
@@ -162,7 +178,7 @@ struct DecodingTests {
     @Test func queryParameters() async throws {
         let server = FakeServer()
         await server.respond(200, with: "values")
-        _ = try await client(server).values(collectionIds: [1, 2], sampledFrom: Date(timeIntervalSince1970: 1_793_266_200))
+        _ = try await client(server).values(collectionIds: [1, 2], sampledFrom: sampledAt)
         let query = try #require(await server.last?.url?.query())
         #expect(query == "collection_id=1&collection_id=2&sampled_from=2026-10-29T09:30:00Z&limit=1000&offset=0")
     }
@@ -171,9 +187,9 @@ struct DecodingTests {
         let server = FakeServer()
         await server.respond(403, with: "error-four-eyes")
         await #expect(throws: LucentAPIError(status: 403, code: "four_eyes",
-                                             message: "Values have to be accepted by someone other than who measured them.",
+                                             message: "Raw values have to be accepted by someone other than who measured them.",
                                              requestId: "example")) {
-            try await client(server).acceptValue(id: 232)
+            try await client(server).acceptRawValue(id: 274)
         }
     }
 

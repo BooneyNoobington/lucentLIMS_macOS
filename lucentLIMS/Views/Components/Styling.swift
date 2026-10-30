@@ -50,20 +50,21 @@ extension ValueClass {
 }
 
 extension Matrix {
+    /// By name, since the ids differ from one lucentBASE to the next.
     var tint: Color {
-        switch id {
-        case 8: .teal
-        case 9: .indigo
-        case 10: .blue
-        case 11: .orange
+        switch name {
+        case "Luft": .teal
+        case "Leitungswasser": .indigo
+        case "Trinkwasser": .blue
+        case "Grundwasser": .orange
         default: .gray
         }
     }
 
     var systemImage: String {
-        switch id {
-        case 8: "wind"
-        case 11: "water.waves"
+        switch name {
+        case "Luft": "wind"
+        case "Grundwasser": "water.waves"
         default: "drop.fill"
         }
     }
@@ -107,11 +108,11 @@ extension Color {
 
 extension LabStore {
     /// A reading with its unit, e.g. "12.5 µg/L".
-    func format(_ reading: Reading, _ actionVariable: ActionVariable) -> String {
+    func format(_ reading: Reading, unitID: Int?) -> String {
         switch reading {
         case .decimal(let number):
-            let text = number.formatted(.number.precision(.fractionLength(actionVariable.decimals)))
-            let symbol = unit(actionVariable.unitID)?.symbol ?? ""
+            let text = number.formatted(.number.grouping(.never).precision(.fractionLength(0...3)))
+            let symbol = unit(unitID)?.symbol ?? ""
             return symbol.isEmpty ? text : "\(text) \(symbol)"
         case .text(let text):
             return text
@@ -122,12 +123,17 @@ extension LabStore {
         }
     }
 
-    /// "± 0.05" or "± 2 %".
-    func uncertaintyText(_ actionVariable: ActionVariable) -> String? {
-        guard let uncertainty = actionVariable.uncertainty else { return nil }
-        switch actionVariable.uncertaintyClass {
+    /// A raw value's reading in its unit, or "—" if it holds nothing.
+    func format(_ raw: RawValue) -> String {
+        raw.reading.map { format($0, unitID: raw.unitID) } ?? "—"
+    }
+
+    /// "± 0.05 °C" or "± 2 %".
+    func uncertaintyText(_ effect: Effect) -> String? {
+        guard let uncertainty = effect.uncertainty else { return nil }
+        switch effect.uncertaintyClass {
         case .absolute:
-            let symbol = unit(actionVariable.unitID)?.symbol ?? ""
+            let symbol = unit(effect.uncertaintyUnitID ?? parameter(effect.parameterID)?.unitID)?.symbol ?? ""
             return "± \(uncertainty.formatted())" + (symbol.isEmpty ? "" : " \(symbol)")
         case .relative:
             return "± \(uncertainty.formatted()) %"
@@ -135,17 +141,43 @@ extension LabStore {
     }
 
     /// "≤ 50 mg/L", or "No" for a flag that should stay unset.
-    func limitText(_ actionVariable: ActionVariable) -> String? {
-        guard let limits = actionVariable.limitDescription else { return nil }
-        if variable(actionVariable.variableID)?.valueClass == .boolean { return String(localized: "No") }
-        let symbol = unit(actionVariable.unitID)?.symbol ?? ""
-        return symbol.isEmpty ? limits : "\(limits) \(symbol)"
+    func limitText(_ threshold: Threshold) -> String {
+        let parameter = parameter(threshold.parameterID)
+        if parameter?.valueClass == .boolean { return String(localized: "No") }
+        let symbol = unit(parameter?.unitID)?.symbol ?? ""
+        return symbol.isEmpty ? threshold.rangeDescription : "\(threshold.rangeDescription) \(symbol)"
+    }
+
+    /// The limits of an effect, e.g. "≤ 50 mg/L (TrinkwV, GrwV)", or nil if none apply.
+    func limitText(_ effect: Effect) -> String? {
+        let limits = limits(of: effect)
+        guard !limits.isEmpty else { return nil }
+        var ranges: [String] = [], documents: [String: [String]] = [:]
+        for limit in limits {
+            let range = limitText(limit)
+            if documents[range] == nil { ranges.append(range) }
+            documents[range, default: []].append(document(limit.documentID)?.shortName ?? "")
+        }
+        if ranges.count == 1 && limits.count == 1 { return ranges[0] }
+        return ranges.map { "\($0) (\(documents[$0]!.joined(separator: ", ")))" }.joined(separator: ", ")
     }
 
     /// "Limit ≤ 50 mg/L" or "Expected: No".
-    func limitPhrase(_ actionVariable: ActionVariable) -> String? {
-        guard let limit = limitText(actionVariable) else { return nil }
-        return variable(actionVariable.variableID)?.valueClass == .boolean
+    func limitPhrase(_ effect: Effect) -> String? {
+        guard let limit = limitText(effect) else { return nil }
+        return parameter(effect.parameterID)?.valueClass == .boolean
             ? String(localized: "Expected: \(limit)") : String(localized: "Limit \(limit)")
     }
+}
+
+extension Document {
+    /// The abbreviation in parentheses, e.g. "TrinkwV", else the name.
+    var shortName: String {
+        if let open = name.lastIndex(of: "("), let close = name.lastIndex(of: ")"), open < close {
+            return String(name[name.index(after: open)..<close])
+        }
+        return name
+    }
+
+    var systemImage: String { url != nil ? "globe" : "doc.richtext" }
 }

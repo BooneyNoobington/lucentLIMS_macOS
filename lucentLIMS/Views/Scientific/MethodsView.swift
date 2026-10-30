@@ -6,15 +6,17 @@ struct MethodsView: View {
     @State private var search = ""
 
     var body: some View {
-        let actions = store.actions.filter {
-            search.isEmpty || $0.name.localizedStandardContains(search) || $0.standard.localizedStandardContains(search)
+        let actions = store.actions.filter { action in
+            search.isEmpty || action.name.localizedStandardContains(search)
+                || action.description.localizedStandardContains(search)
+                || action.documentIDs.contains { store.document($0)?.name.localizedStandardContains(search) == true }
         }
         List(actions) { action in
             NavigationLink(value: Route.method(action.id)) {
                 MethodRow(action: action)
             }
         }
-        .searchable(text: $search, prompt: "Method or standard")
+        .searchable(text: $search, prompt: "Method, standard or document")
         .navigationTitle("Methods")
     }
 }
@@ -28,22 +30,25 @@ private struct MethodRow: View {
             Image(systemName: "flask.fill")
                 .foregroundStyle(.white)
                 .frame(width: 34, height: 34)
-                .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .background((action.active ? Color.accentColor : Color.gray).gradient,
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(action.name)
                         .font(.body.weight(.medium))
-                    Text("Rev. \(action.iteration)")
+                    Text(action.active ? action.iteration.formatted(.dateTime.month(.abbreviated).year())
+                                       : String(localized: "Inactive"))
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(.quaternary, in: Capsule())
                 }
-                Text(action.standard)
+                Text(action.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(store.actionVariables(of: action).compactMap { store.variable($0.variableID)?.name }
+                    .lineLimit(1)
+                Text(store.effects(of: action).compactMap { store.parameter($0.parameterID)?.name }
                     .formatted(.list(type: .and)))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -59,48 +64,70 @@ struct MethodDetailView: View {
     let action: LabAction
 
     var body: some View {
+        let versions = store.actions.filter { $0.name == action.name && $0.id != action.id }
+        let requiredBy = store.actions.filter { other in other.dependencies.contains { $0.actionID == action.id } }
+
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(action.name)
                         .font(.title2.weight(.semibold))
-                    Text("\(action.standard) · Revision \(action.iteration)")
+                    Text("Version of \(action.iteration.formatted(date: .long, time: .omitted))")
                         .foregroundStyle(.secondary)
+                    if !action.active {
+                        Label("Inactive", systemImage: "pause.circle")
+                            .foregroundStyle(.orange)
+                    }
                     Text(action.description)
                         .padding(.top, 4)
                 }
                 .padding(.vertical, 4)
             }
 
-            Section("Measured variables") {
-                ForEach(store.actionVariables(of: action)) { actionVariable in
-                    VariableRow(actionVariable: actionVariable)
+            Section {
+                ForEach(store.effects(of: action)) { effect in
+                    EffectRow(effect: effect)
                 }
+            } header: {
+                Text("Effects")
+            } footer: {
+                Text("What the action yields. Every effect becomes a value of the collections it is planned for.")
             }
 
-            Section("Workflow") {
-                ForEach(action.dependsOn, id: \.self) { id in
-                    if let other = store.action(id) {
-                        NavigationLink(value: Route.method(id)) {
-                            LabeledContent("Requires", value: other.name)
+            if !action.dependencies.isEmpty || !requiredBy.isEmpty || !versions.isEmpty {
+                Section("Workflow") {
+                    ForEach(action.dependencies, id: \.self) { dependency in
+                        if let other = store.action(dependency.actionID) {
+                            NavigationLink(value: Route.method(other.id)) {
+                                LabeledContent {
+                                    Text(other.name)
+                                } label: {
+                                    Text(dependency.kind == .strict ? "Requires" : "Can use")
+                                    if !dependency.description.isEmpty { Text(dependency.description) }
+                                }
+                            }
+                        }
+                    }
+                    ForEach(requiredBy) { other in
+                        NavigationLink(value: Route.method(other.id)) {
+                            LabeledContent("Required by", value: other.name)
+                        }
+                    }
+                    ForEach(versions) { other in
+                        NavigationLink(value: Route.method(other.id)) {
+                            LabeledContent(other.active ? "Other version" : "Earlier version",
+                                           value: other.iteration.formatted(date: .abbreviated, time: .omitted))
                         }
                     }
                 }
-                ForEach(action.implies, id: \.self) { id in
-                    if let other = store.action(id) {
-                        NavigationLink(value: Route.method(id)) {
-                            LabeledContent("Implies", value: other.name)
-                        }
-                    }
-                }
-                LabeledContent("Collection classes",
-                               value: store.classes(using: action).map(\.name).formatted(.list(type: .and)))
             }
 
-            if let sop = store.sop(action.sopID) {
-                Section("SOP") {
-                    NavigationLink(value: Route.sop(sop.id)) {
-                        Label(sop.name, systemImage: "doc.text")
+            if !action.documentIDs.isEmpty {
+                Section("Documents") {
+                    ForEach(action.documentIDs.compactMap { store.document($0) }) { document in
+                        NavigationLink(value: Route.document(document.id)) {
+                            Label(document.name, systemImage: document.systemImage)
+                        }
                     }
                 }
             }
@@ -113,7 +140,7 @@ struct MethodDetailView: View {
                                 .foregroundStyle(device.active ? Color.green : Color.secondary)
                         } label: {
                             Text(device.name)
-                            Text(device.number).monospaced()
+                            Text(String(device.number)).monospaced()
                         }
                     }
                 }
@@ -124,7 +151,7 @@ struct MethodDetailView: View {
                     if let person = store.person(assignment.personID) {
                         NavigationLink(value: Route.person(person.id)) {
                             LabeledContent {
-                                Text(assignment.role)
+                                Text(assignment.role.capitalized)
                             } label: {
                                 HStack(spacing: 8) {
                                     Avatar(person: person, size: 24)
@@ -141,35 +168,41 @@ struct MethodDetailView: View {
     }
 }
 
-private struct VariableRow: View {
+private struct EffectRow: View {
     @Environment(LabStore.self) private var store
-    let actionVariable: ActionVariable
+    let effect: Effect
 
     var body: some View {
-        let variable = store.variable(actionVariable.variableID)
+        let parameter = store.parameter(effect.parameterID)
+        let coefficients = store.coefficients.filter { $0.effectIDs.contains(effect.id) }
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label(variable?.name ?? "—", systemImage: variable?.valueClass.systemImage ?? "number")
+                Label(parameter?.name ?? "—", systemImage: parameter?.valueClass.systemImage ?? "number")
                 Spacer()
-                Text(store.unit(actionVariable.unitID)?.symbol ?? "")
+                Text(store.unit(parameter?.unitID)?.symbol ?? "")
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
-                if let uncertainty = store.uncertaintyText(actionVariable) {
+                if let uncertainty = store.uncertaintyText(effect) {
                     Text("Uncertainty \(uncertainty)")
                 }
-                if let limit = store.limitPhrase(actionVariable) {
+                if let limit = store.limitPhrase(effect) {
                     Text(limit)
                 }
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            if let calculation = actionVariable.calculation {
+            if let calculation = effect.calculation {
                 Text(calculation)
                     .font(.caption.monospaced())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+            }
+            ForEach(coefficients) { coefficient in
+                Label(coefficient.description, systemImage: "link")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Registers a collection, like lucentAndShiny's "Add Collection" dialog.
+/// Registers a collection, like lucentAndShiny's "Add Collection" dialog. Every effect of the
+/// planned actions becomes one of its values; the sampling time is recorded as a raw value.
 struct NewCollectionSheet: View {
     @Environment(LabStore.self) private var store
     @Environment(AppNavigation.self) private var navigation
@@ -9,21 +10,33 @@ struct NewCollectionSheet: View {
     enum Relation: Hashable { case spot, site }
 
     @State private var matrixID: Int
-    @State private var classID: Int
+    @State private var collectionClass: String
     @State private var relation = Relation.spot
     @State private var spotID: Int
     @State private var siteID: Int
+    @State private var actionIDs: Set<Int>
     @State private var sampledAt = Date.now
-    @State private var samplerID: Int
     @State private var saving = false
     @State private var error: String?
 
     init(store: LabStore) {
-        _matrixID = State(initialValue: store.matrices.first?.id ?? 0)
-        _classID = State(initialValue: store.collectionClasses.first?.id ?? 0)
+        let matrixID = store.matrices.first?.id ?? 0
+        _matrixID = State(initialValue: matrixID)
+        _collectionClass = State(initialValue: store.collectionClasses.first ?? "")
         _spotID = State(initialValue: store.spots.first?.id ?? 0)
         _siteID = State(initialValue: store.sites.first?.id ?? 0)
-        _samplerID = State(initialValue: store.currentUser.id)
+        _actionIDs = State(initialValue: Self.usualActions(for: matrixID, in: store))
+    }
+
+    /// The actions planned for the latest collection of a matrix, as a starting point.
+    private static func usualActions(for matrixID: Int, in store: LabStore) -> Set<Int> {
+        guard let latest = store.collections.filter({ $0.matrixID == matrixID }).max(by: { $0.sampledAt < $1.sampledAt })
+        else { return [] }
+        return Set(store.plannedActions(of: latest).filter(\.active).map(\.id))
+    }
+
+    private var plansSamplingTime: Bool {
+        store.effects.contains { actionIDs.contains($0.actionID) && $0.parameterID == store.samplingTimeParameterID }
     }
 
     var body: some View {
@@ -55,12 +68,8 @@ struct NewCollectionSheet: View {
                             Label(matrix.name, systemImage: matrix.systemImage).tag(matrix.id)
                         }
                     }
-                    Picker("Collection class", selection: $classID) {
-                        ForEach(store.collectionClasses) { Text($0.name).tag($0.id) }
-                    }
-                    DatePicker("Sampled at", selection: $sampledAt)
-                    Picker("Sampled by", selection: $samplerID) {
-                        ForEach(store.people) { Text($0.fullName).tag($0.id) }
+                    Picker("Collection class", selection: $collectionClass) {
+                        ForEach(store.collectionClasses, id: \.self) { Text($0).tag($0) }
                     }
                 }
 
@@ -83,18 +92,48 @@ struct NewCollectionSheet: View {
                     }
                 }
 
-                Section("Planned methods") {
-                    ForEach(store.actions(forClass: classID)) { action in
-                        LabeledContent {
-                            Text("^[\(store.actionVariables(of: action).count) value](inflect: true)")
-                        } label: {
-                            Label(action.name, systemImage: "flask")
+                Section {
+                    ForEach(store.actions.filter(\.active)) { action in
+                        Toggle(isOn: Binding(
+                            get: { actionIDs.contains(action.id) },
+                            set: { if $0 { actionIDs.insert(action.id) } else { actionIDs.remove(action.id) } })
+                        ) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(action.name)
+                                Text(store.effects(of: action).compactMap { store.parameter($0.parameterID)?.name }
+                                    .formatted(.list(type: .and)))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                    }
+                } header: {
+                    Text("Planned actions")
+                } footer: {
+                    let count = store.effects.filter { actionIDs.contains($0.actionID) }.count
+                    Text("^[\(count) value](inflect: true) to measure")
+                }
+
+                Section {
+                    if plansSamplingTime {
+                        DatePicker("Sampled at", selection: $sampledAt)
+                    }
+                } header: {
+                    Text("Sampling time")
+                } footer: {
+                    let name = store.parameter(store.samplingTimeParameterID)?.name ?? String(localized: "sampling time")
+                    if plansSamplingTime {
+                        Text("Recorded as the raw value of “\(name)”.")
+                    } else {
+                        Text("None of the planned actions yields “\(name)”, so the registration time stands in for it.")
                     }
                 }
             }
             .formStyle(.grouped)
             .navigationTitle("New Collection")
+            .onChange(of: matrixID) { _, matrixID in
+                actionIDs = Self.usualActions(for: matrixID, in: store)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -104,11 +143,12 @@ struct NewCollectionSheet: View {
                         saving = true
                         Task {
                             do {
-                                let collection = try await store.registerCollection(
-                                    matrixID: matrixID, classID: classID,
+                                let collection = try await store.registerCollection(NewCollection(
+                                    matrixID: matrixID, collectionClass: collectionClass,
                                     spotID: relation == .spot ? spotID : nil,
                                     siteID: relation == .site ? siteID : nil,
-                                    sampledAt: sampledAt, sampledByID: samplerID)
+                                    actionIDs: store.actions.map(\.id).filter(actionIDs.contains),
+                                    sampledAt: plansSamplingTime ? sampledAt : nil))
                                 navigation.open(collection: collection.id)
                                 dismiss()
                             } catch {
@@ -117,12 +157,12 @@ struct NewCollectionSheet: View {
                             saving = false
                         }
                     }
-                    .disabled(saving || !store.can(.sampler))
+                    .disabled(saving || !store.can(.sampler) || collectionClass.isEmpty)
                 }
             }
         }
         #if os(macOS)
-        .frame(minWidth: 480, minHeight: 600)
+        .frame(minWidth: 480, minHeight: 640)
         #endif
     }
 }

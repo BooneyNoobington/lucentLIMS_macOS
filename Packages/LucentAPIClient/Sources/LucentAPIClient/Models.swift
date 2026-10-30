@@ -1,7 +1,7 @@
 import Foundation
 
-/// The types of lucentAPI, as described in its `openapi.json`. Property names are the JSON
-/// names in camel case (`matrix_id` becomes `matrixId`).
+/// The types of lucentAPI, as described in its `openapi.json`. They follow lucentBASE. Property
+/// names are the JSON names in camel case (`matrix_id` becomes `matrixId`).
 public enum LucentAPI {}
 
 // MARK: - People
@@ -13,16 +13,18 @@ extension LucentAPI {
 
     public struct Organization: Codable, Hashable, Sendable {
         public var id: Int
-        public var name: String
+        public var name: String?
         public var shorthand: String?
+        public var relation: String?
     }
 
     public struct Person: Codable, Hashable, Sendable {
         public var id: Int
-        public var givenName: String?
+        public var givenName: String
         public var surname: String
-        public var unixAccount: String?
+        public var linuxUser: String?
         public var organizationId: Int?
+        /// From j_person_organization.
         public var position: String?
     }
 
@@ -30,6 +32,13 @@ extension LucentAPI {
     public struct Me: Codable, Hashable, Sendable {
         public var person: Person
         public var roles: [Role]
+    }
+
+    /// What clients need to know about this lucentBASE.
+    public struct Configuration: Codable, Hashable, Sendable {
+        /// The parameter whose datetime raw value is a collection's sampling time.
+        public var samplingTimeParameterId: Int?
+        public var collectionClasses: [String]
     }
 }
 
@@ -43,7 +52,7 @@ extension LucentAPI {
 
     public struct Address: Codable, Hashable, Sendable {
         public var street: String?
-        public var houseNumber: String?
+        public var houseNumber: Int?
         public var addition: String?
         public var zip: String?
         public var district: String?
@@ -52,8 +61,9 @@ extension LucentAPI {
 
     public struct ReferenceSystem: Codable, Hashable, Sendable {
         public var id: Int
-        public var epsg: Int?
+        public var epsg: Int
         public var name: String
+        public var description: String?
     }
 
     public struct Site: Codable, Hashable, Sendable {
@@ -72,6 +82,7 @@ extension LucentAPI {
         public var description: String?
         public var x: Double?
         public var y: Double?
+        public var z: Double?
         public var crsId: Int?
         public var siteId: Int?
     }
@@ -86,14 +97,6 @@ extension LucentAPI {
         public var description: String?
     }
 
-    public struct CollectionClass: Codable, Hashable, Sendable {
-        public var id: Int
-        public var name: String
-        public var description: String?
-        /// The actions this class plans.
-        public var actionIds: [Int]
-    }
-
     public struct Dimension: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
@@ -103,6 +106,7 @@ extension LucentAPI {
     public struct Unit: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
+        public var description: String?
         public var notations: [String]
         public var dimensionId: Int?
     }
@@ -111,84 +115,100 @@ extension LucentAPI {
         case decimal, text, boolean, datetime
     }
 
-    public struct Variable: Codable, Hashable, Sendable {
+    public struct Parameter: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
-        public var valueClass: ValueClass
         public var description: String?
-        public var dimensionId: Int?
+        public var unitId: Int?
+        public var valueClass: ValueClass
     }
 
     public struct Device: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
-        public var number: String?
+        public var number: Int
+        /// An organization.
         public var manufacturerId: Int?
+        /// An organization, as in lucentBASE.
         public var operatorId: Int?
         public var active: Bool
         /// Send it as `If-Match` when changing the device.
         public var etag: String
     }
 
-    public struct Assignment: Codable, Hashable, Sendable {
-        public var personId: Int
-        public var role: String?
-    }
-
-    public struct SOPDocument: Codable, Hashable, Sendable {
+    /// A link: an SOP, a standard, a regulation, any file or web page.
+    public struct Document: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
-        public var url: String?
+        public var uri: String?
         public var filePath: String?
         public var accepted: Bool
         public var sha256: String?
+        /// Actions that refer to it.
+        public var actionIds: [Int]
     }
 
-    public struct SOP: Codable, Hashable, Sendable {
-        public var id: Int
-        public var name: String
-        public var active: Bool
-        public var documents: [SOPDocument]
-        public var people: [Assignment]
-    }
-
-    /// A variable an action measures, with unit, uncertainty and limits.
-    public struct ActionVariable: Codable, Hashable, Sendable {
+    /// What an action yields: one parameter, with method-specific uncertainty.
+    public struct Effect: Codable, Hashable, Sendable {
         public var id: Int
         public var actionId: Int
-        public var variableId: Int
-        public var unitId: Int?
+        public var parameterId: Int
         public var uncertainty: Double?
         public var uncertaintyClass: String?
         public var uncertaintyUnitId: Int?
         public var calculation: String?
-        public var decimals: Int?
-        public var lowerLimit: Double?
-        public var upperLimit: Double?
     }
 
-    /// A method.
+    public struct ActionPerson: Codable, Hashable, Sendable {
+        public var personId: Int
+        /// auditor, manager or worker.
+        public var role: String
+    }
+
+    /// The action depends on `actionId`: strictly, or as a possibility.
+    public struct Dependency: Codable, Hashable, Sendable {
+        public var actionId: Int
+        public var dependencyClass: String
+        public var description: String?
+    }
+
     public struct Action: Codable, Hashable, Sendable {
         public var id: Int
         public var name: String
-        public var standard: String?
-        public var iteration: Int?
+        /// The version of the action, as a point in time.
+        public var iteration: Date
         public var active: Bool
         public var description: String?
-        public var sopId: Int?
+        public var documentIds: [Int]
         public var deviceIds: [Int]
-        public var people: [Assignment]
-        public var dependsOn: [Int]
-        public var implies: [Int]
-        public var collectionClassIds: [Int]
-        public var variables: [ActionVariable]
+        public var people: [ActionPerson]
+        public var dependencies: [Dependency]
+        public var effects: [Effect]
+    }
+
+    /// Two effects that belong together.
+    public struct Coefficient: Codable, Hashable, Sendable {
+        public var id: Int
+        public var effect1Id: Int?
+        public var effect2Id: Int?
+        public var description: String?
+    }
+
+    /// Limits of a parameter in the context of a document, in the parameter's unit.
+    public struct Threshold: Codable, Hashable, Sendable {
+        public var id: Int
+        public var parameterId: Int
+        public var documentId: Int
+        public var lowerLimit: Double?
+        public var upperLimit: Double?
+        public var description: String?
     }
 }
 
-// MARK: - Collections and values
+// MARK: - Collections, values, raw values
 
 extension LucentAPI {
-    /// Exactly one of four kinds, matching the variable's value class.
+    /// What a raw value holds: exactly one of four kinds, matching the parameter's value class.
     public enum Reading: Codable, Hashable, Sendable {
         case decimal(Double)
         case text(String)
@@ -224,20 +244,40 @@ extension LucentAPI {
         }
     }
 
-    public struct Value: Codable, Hashable, Sendable {
+    public struct Limit: Codable, Hashable, Sendable {
+        public var thresholdId: Int
+        public var documentId: Int
+        public var lowerLimit: Double?
+        public var upperLimit: Double?
+    }
+
+    /// A reading of a value.
+    public struct RawValue: Codable, Hashable, Sendable {
         public var id: Int
-        public var collectionId: Int
-        public var actionVariableId: Int
-        public var repetition: Int
-        public var reading: Reading
-        public var accepted: Bool
-        public var measuredAt: Date?
+        public var valueId: Int
+        public var t: Date?
         /// Who measured it.
         public var personId: Int?
         public var deviceId: Int?
-        /// Outside the action variable's limits.
+        public var unitId: Int?
+        /// `nil` if the raw value holds nothing.
+        public var reading: Reading?
+        public var accepted: Bool
+        /// Outside one of the limits that apply.
         public var exceeds: Bool
+        /// Send it as `If-Match` when accepting or withdrawing.
         public var etag: String
+    }
+
+    /// A collection's slot for one effect, with its readings, oldest first.
+    public struct Value: Codable, Hashable, Sendable {
+        public var id: Int
+        public var collectionId: Int
+        public var effectId: Int
+        public var name: String?
+        /// The thresholds of the parameter in the documents of the effect's action.
+        public var limits: [Limit]
+        public var rawValues: [RawValue]
     }
 
     public enum Status: String, Codable, Hashable, Sendable {
@@ -249,21 +289,25 @@ extension LucentAPI {
 
     public struct Collection: Codable, Hashable, Sendable {
         public var id: Int
-        public var name: String
-        public var matrixId: Int?
-        public var classId: Int?
+        public var name: String?
+        public var matrixId: Int
+        public var collectionClass: String
         public var spotId: Int?
         public var siteId: Int?
+        public var registeredAt: Date?
+        public var registeredBy: Int?
+        /// The sampling-time raw value, else the registration time.
         public var sampledAt: Date?
-        public var samplerId: Int?
+        public var sampledBy: Int?
         public var status: Status
-        /// Planned variables with at least one value.
-        public var measured: Int
+        /// Values planned for the collection.
         public var planned: Int
+        /// Values with at least one raw value.
+        public var measured: Int
         public var exceedances: Int
     }
 
-    /// A collection with all its values.
+    /// A collection with its values and their raw values.
     public struct CollectionDetail: Codable, Hashable, Sendable {
         public var collection: Collection
         public var values: [Value]
@@ -290,6 +334,7 @@ extension LucentAPI {
     }
 
     public struct SeriesPoint: Codable, Hashable, Sendable {
+        public var rawValueId: Int
         public var valueId: Int
         public var collectionId: Int
         public var sampledAt: Date?
@@ -299,38 +344,42 @@ extension LucentAPI {
 
     public struct NewCollection: Encodable, Sendable {
         public var matrixId: Int
-        public var classId: Int
+        public var collectionClass: String
         public var spotId: Int?
         public var siteId: Int?
+        /// Plan every effect of these actions as a value.
+        public var actionIds: [Int]
+        /// Recorded as the sampling-time raw value; needs that parameter planned.
         public var sampledAt: Date?
-        public var samplerId: Int?
         public var note: String?
 
-        public init(matrixId: Int, classId: Int, spotId: Int? = nil, siteId: Int? = nil, sampledAt: Date? = nil,
-                    samplerId: Int? = nil, note: String? = nil) {
+        public init(matrixId: Int, collectionClass: String, spotId: Int? = nil, siteId: Int? = nil,
+                    actionIds: [Int] = [], sampledAt: Date? = nil, note: String? = nil) {
             self.matrixId = matrixId
-            self.classId = classId
+            self.collectionClass = collectionClass
             self.spotId = spotId
             self.siteId = siteId
+            self.actionIds = actionIds
             self.sampledAt = sampledAt
-            self.samplerId = samplerId
             self.note = note
         }
     }
 
-    public struct NewValue: Encodable, Sendable {
-        public var actionVariableId: Int
+    public struct NewRawValue: Encodable, Sendable {
         public var reading: Reading
+        /// When it was measured; defaults to now.
+        public var t: Date?
+        /// Defaults to the first active device of the action.
         public var deviceId: Int?
-        public var measuredAt: Date?
+        /// Defaults to the parameter's unit.
+        public var unitId: Int?
         public var note: String?
 
-        public init(actionVariableId: Int, reading: Reading, deviceId: Int? = nil, measuredAt: Date? = nil,
-                    note: String? = nil) {
-            self.actionVariableId = actionVariableId
+        public init(reading: Reading, t: Date? = nil, deviceId: Int? = nil, unitId: Int? = nil, note: String? = nil) {
             self.reading = reading
+            self.t = t
             self.deviceId = deviceId
-            self.measuredAt = measuredAt
+            self.unitId = unitId
             self.note = note
         }
     }
@@ -343,8 +392,8 @@ extension LucentAPI {
         public var id: Int
         public var request: String
         public var description: String?
-        public var assignerId: Int?
-        public var assigneeId: Int?
+        public var assignerId: Int
+        public var assigneeId: Int
         public var deadline: Date?
         public var done: Bool
         /// Send it as `If-Match` when changing the task.
@@ -385,11 +434,12 @@ extension LucentAPI {
 
     public struct Message: Codable, Hashable, Sendable {
         public var id: Int
-        public var senderId: Int?
-        public var receiverId: Int?
-        public var subject: String?
-        public var body: String?
+        public var senderId: Int
+        public var receiverId: Int
+        public var subject: String
+        public var body: String
         public var read: Bool
+        /// From lucentBASE's log.
         public var sentAt: Date?
     }
 

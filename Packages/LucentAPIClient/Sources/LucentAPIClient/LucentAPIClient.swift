@@ -39,37 +39,40 @@ public struct LucentAPIClient: Sendable {
 
     /// The endpoints this client uses, as in `openapi.json` (checked by the tests).
     public static let endpoints: [(method: String, path: String)] = [
-        ("GET", "/health"), ("GET", "/v1/me"), ("GET", "/v1/people"), ("GET", "/v1/organizations"),
-        ("GET", "/v1/crs"), ("GET", "/v1/sites"), ("GET", "/v1/spots"), ("GET", "/v1/matrices"),
-        ("GET", "/v1/collection-classes"), ("GET", "/v1/dimensions"), ("GET", "/v1/units"),
-        ("GET", "/v1/variables"), ("GET", "/v1/devices"), ("PATCH", "/v1/devices/{device_id}"), ("GET", "/v1/sops"),
-        ("GET", "/v1/actions"), ("GET", "/v1/collections"), ("POST", "/v1/collections"),
-        ("GET", "/v1/collections/{collection_id}"), ("POST", "/v1/collections/{collection_id}/values"),
-        ("POST", "/v1/collections/{collection_id}/accept"), ("GET", "/v1/values"),
-        ("POST", "/v1/values/{value_id}/accept"), ("POST", "/v1/values/{value_id}/withdraw"), ("GET", "/v1/series"),
-        ("GET", "/v1/tasks"), ("POST", "/v1/tasks"), ("PATCH", "/v1/tasks/{task_id}"), ("GET", "/v1/messages"),
-        ("POST", "/v1/messages"), ("POST", "/v1/messages/{message_id}/read"),
+        ("GET", "/health"), ("GET", "/v1/me"), ("GET", "/v1/configuration"), ("GET", "/v1/people"),
+        ("GET", "/v1/organizations"), ("GET", "/v1/crs"), ("GET", "/v1/sites"), ("GET", "/v1/spots"),
+        ("GET", "/v1/matrices"), ("GET", "/v1/collection-classes"), ("GET", "/v1/dimensions"), ("GET", "/v1/units"),
+        ("GET", "/v1/parameters"), ("GET", "/v1/devices"), ("PATCH", "/v1/devices/{device_id}"),
+        ("GET", "/v1/documents"), ("GET", "/v1/actions"), ("GET", "/v1/coefficients"), ("GET", "/v1/thresholds"),
+        ("GET", "/v1/collections"), ("POST", "/v1/collections"), ("GET", "/v1/collections/{collection_id}"),
+        ("POST", "/v1/collections/{collection_id}/plan"), ("POST", "/v1/collections/{collection_id}/accept"),
+        ("POST", "/v1/values/{value_id}/raw-values"), ("GET", "/v1/values"),
+        ("POST", "/v1/raw-values/{raw_value_id}/accept"), ("POST", "/v1/raw-values/{raw_value_id}/withdraw"),
+        ("GET", "/v1/series"), ("GET", "/v1/tasks"), ("POST", "/v1/tasks"), ("PATCH", "/v1/tasks/{task_id}"),
+        ("GET", "/v1/messages"), ("POST", "/v1/messages"), ("POST", "/v1/messages/{message_id}/read"),
     ]
 
     // MARK: Reference data
 
     public func health() async throws -> LucentAPI.Health { try await send("GET", "/health", authorized: false) }
     public func me() async throws -> LucentAPI.Me { try await send("GET", "/v1/me") }
+    public func configuration() async throws -> LucentAPI.Configuration { try await send("GET", "/v1/configuration") }
     public func people() async throws -> [LucentAPI.Person] { try await send("GET", "/v1/people") }
     public func organizations() async throws -> [LucentAPI.Organization] { try await send("GET", "/v1/organizations") }
     public func referenceSystems() async throws -> [LucentAPI.ReferenceSystem] { try await send("GET", "/v1/crs") }
     public func sites() async throws -> [LucentAPI.Site] { try await send("GET", "/v1/sites") }
     public func spots() async throws -> [LucentAPI.Spot] { try await send("GET", "/v1/spots") }
     public func matrices() async throws -> [LucentAPI.Matrix] { try await send("GET", "/v1/matrices") }
-    public func collectionClasses() async throws -> [LucentAPI.CollectionClass] {
-        try await send("GET", "/v1/collection-classes")
-    }
+    /// The classes lucentBASE allows for a collection.
+    public func collectionClasses() async throws -> [String] { try await send("GET", "/v1/collection-classes") }
     public func dimensions() async throws -> [LucentAPI.Dimension] { try await send("GET", "/v1/dimensions") }
     public func units() async throws -> [LucentAPI.Unit] { try await send("GET", "/v1/units") }
-    public func variables() async throws -> [LucentAPI.Variable] { try await send("GET", "/v1/variables") }
+    public func parameters() async throws -> [LucentAPI.Parameter] { try await send("GET", "/v1/parameters") }
     public func devices() async throws -> [LucentAPI.Device] { try await send("GET", "/v1/devices") }
-    public func sops() async throws -> [LucentAPI.SOP] { try await send("GET", "/v1/sops") }
+    public func documents() async throws -> [LucentAPI.Document] { try await send("GET", "/v1/documents") }
     public func actions() async throws -> [LucentAPI.Action] { try await send("GET", "/v1/actions") }
+    public func coefficients() async throws -> [LucentAPI.Coefficient] { try await send("GET", "/v1/coefficients") }
+    public func thresholds() async throws -> [LucentAPI.Threshold] { try await send("GET", "/v1/thresholds") }
 
     /// Switches a device on or off (role admin). Pass the device's current `etag`.
     public func updateDevice(id: Int, etag: String, active: Bool, note: String? = nil) async throws -> LucentAPI.Device {
@@ -77,14 +80,14 @@ public struct LucentAPIClient: Sendable {
         return try await send("PATCH", "/v1/devices/\(id)", body: Change(active: active, note: note), ifMatch: etag)
     }
 
-    // MARK: Collections and values
+    // MARK: Collections, values, raw values
 
-    public func collections(status: LucentAPI.Status? = nil, matrixId: Int? = nil, classId: Int? = nil,
+    public func collections(status: LucentAPI.Status? = nil, matrixId: Int? = nil, collectionClass: String? = nil,
                             spotId: Int? = nil, siteId: Int? = nil, sampledFrom: Date? = nil,
                             sampledUntil: Date? = nil, limit: Int = 200,
                             offset: Int = 0) async throws -> LucentAPI.Page<LucentAPI.Collection> {
         try await send("GET", "/v1/collections", query: [
-            item("status", status?.rawValue), item("matrix_id", matrixId), item("class_id", classId),
+            item("status", status?.rawValue), item("matrix_id", matrixId), item("collection_class", collectionClass),
             item("spot_id", spotId), item("site_id", siteId), item("sampled_from", sampledFrom),
             item("sampled_until", sampledUntil), item("limit", limit), item("offset", offset),
         ])
@@ -99,14 +102,21 @@ public struct LucentAPIClient: Sendable {
         try await send("GET", "/v1/collections/\(id)")
     }
 
-    /// Registers a collection (role sampler). The server picks the identifier.
+    /// Registers a collection and plans the effects of its actions (role sampler). The server
+    /// picks the identifier.
     public func registerCollection(_ collection: LucentAPI.NewCollection) async throws -> LucentAPI.CollectionDetail {
         try await send("POST", "/v1/collections", body: collection)
     }
 
-    /// Records a reading (role analyst); a further reading of a variable is its next repetition.
-    public func recordValue(_ value: LucentAPI.NewValue, in collectionId: Int) async throws -> LucentAPI.Value {
-        try await send("POST", "/v1/collections/\(collectionId)/values", body: value)
+    /// Plans the effects of further actions for a collection (role sampler).
+    public func plan(actionIds: [Int], for collectionId: Int, note: String? = nil) async throws -> LucentAPI.CollectionDetail {
+        struct Plan: Encodable { var actionIds: [Int]; var note: String? }
+        return try await send("POST", "/v1/collections/\(collectionId)/plan", body: Plan(actionIds: actionIds, note: note))
+    }
+
+    /// Records a reading of a value (role analyst); a further reading is a repetition.
+    public func recordRawValue(_ rawValue: LucentAPI.NewRawValue, for valueId: Int) async throws -> LucentAPI.RawValue {
+        try await send("POST", "/v1/values/\(valueId)/raw-values", body: rawValue)
     }
 
     public func values(collectionIds: [Int] = [], sampledFrom: Date? = nil, sampledUntil: Date? = nil,
@@ -117,30 +127,30 @@ public struct LucentAPIClient: Sendable {
         ])
     }
 
-    /// Every value of the collections sampled since `sampledFrom`, fetched page by page.
+    /// Every value (with its raw values) of the collections sampled since `sampledFrom`.
     public func allValues(sampledFrom: Date? = nil, pageSize: Int = 5000) async throws -> [LucentAPI.Value] {
         try await allPages { try await values(sampledFrom: sampledFrom, limit: pageSize, offset: $0) }
     }
 
-    /// Accepts a value (role reviewer, never for whoever measured it). `etag` guards against
-    /// accepting something that changed meanwhile.
-    public func acceptValue(id: Int, etag: String? = nil, note: String? = nil) async throws -> LucentAPI.Value {
-        try await send("POST", "/v1/values/\(id)/accept", body: note.map(Note.init), ifMatch: etag)
+    /// Accepts a raw value (role reviewer, never for whoever measured it). `etag` guards
+    /// against accepting something that changed meanwhile.
+    public func acceptRawValue(id: Int, etag: String? = nil, note: String? = nil) async throws -> LucentAPI.RawValue {
+        try await send("POST", "/v1/raw-values/\(id)/accept", body: note.map(Note.init), ifMatch: etag)
     }
 
-    public func withdrawValue(id: Int, etag: String? = nil, note: String? = nil) async throws -> LucentAPI.Value {
-        try await send("POST", "/v1/values/\(id)/withdraw", body: note.map(Note.init), ifMatch: etag)
+    public func withdrawRawValue(id: Int, etag: String? = nil, note: String? = nil) async throws -> LucentAPI.RawValue {
+        try await send("POST", "/v1/raw-values/\(id)/withdraw", body: note.map(Note.init), ifMatch: etag)
     }
 
-    /// Accepts all open values of a collection, or none if the caller measured any of them.
+    /// Accepts all open raw values of a collection, or none if the caller measured any of them.
     public func acceptCollection(id: Int, note: String? = nil) async throws -> LucentAPI.CollectionDetail {
         try await send("POST", "/v1/collections/\(id)/accept", body: note.map(Note.init))
     }
 
-    public func series(actionVariableId: Int, spotId: Int? = nil,
-                       siteId: Int? = nil) async throws -> [LucentAPI.SeriesPoint] {
+    /// One parameter over time at a spot or site.
+    public func series(parameterId: Int, spotId: Int? = nil, siteId: Int? = nil) async throws -> [LucentAPI.SeriesPoint] {
         try await send("GET", "/v1/series", query: [
-            item("action_variable_id", actionVariableId), item("spot_id", spotId), item("site_id", siteId),
+            item("parameter_id", parameterId), item("spot_id", spotId), item("site_id", siteId),
         ])
     }
 

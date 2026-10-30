@@ -177,7 +177,7 @@ private struct ExceedanceList: View {
     var body: some View {
         if exceedances.isEmpty {
             ContentUnavailableView("No Exceedances", systemImage: "checkmark.shield",
-                                   description: Text("All values of the last 30 days are within their limits."))
+                                   description: Text("All raw values of the last 30 days are within their limits."))
         } else {
             VStack(spacing: 0) {
                 ForEach(exceedances) { item in
@@ -196,7 +196,7 @@ private struct ExceedanceList: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.variable(item.actionVariable.variableID)?.name ?? "—")
+                Text(store.parameter(item.effect.parameterID)?.name ?? "—")
                     .font(.callout.weight(.medium))
                 HStack(spacing: 4) {
                     IdentifierView(identifier: item.collection.name)
@@ -208,11 +208,11 @@ private struct ExceedanceList: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(store.format(item.value.reading, item.actionVariable))
+                Text(store.format(item.raw))
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.red)
-                if let limit = store.limitPhrase(item.actionVariable) {
+                if let limit = store.limitPhrase(item.effect) {
                     Text(limit)
                         .font(.caption2)
                         .foregroundStyle(.secondary)

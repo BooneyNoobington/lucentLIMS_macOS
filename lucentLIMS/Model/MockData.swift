@@ -28,46 +28,52 @@ struct SeededGenerator: RandomNumberGenerator {
     }
 }
 
-/// Mock data in the shape of lucentBASE. The people, matrices and the spots "Test 1" and
-/// "Garten" come from lucentAndShiny's demo data, everything else is made up. Dates are
-/// relative to `now`, so the dashboard always looks current.
+/// Mock data in lucentBASE's model, with the same people, places, actions, parameters,
+/// documents and thresholds as lucentAPI's demo data (the system user is Booney Noobington,
+/// lucentAndShiny's demo person). Dates are relative to `now`, so the dashboard looks current.
 enum MockData {
-    // People
-    static let noobington = 23, doe = 24, dorn = 26, simpson = 27, picard = 28, ripley = 29
+    static let system = 1, doe = 2, dorn = 3, simpson = 4, picard = 5, ripley = 6
+    static let samplingTime = 1
+
+    static let collectionClasses = ["spot sample", "mixed sample", "collective sample", "time series",
+                                    "free measurement"]
 
     static func make(now: Date = .now, calendar: Calendar = .current) -> LabData {
         let today = calendar.startOfDay(for: now)
         func day(_ offset: Int, hour: Int = 16) -> Date {
             calendar.date(byAdding: .hour, value: offset * 24 + hour, to: today)!
         }
+        func date(_ text: String) -> Date { try! Date(text, strategy: .iso8601.year().month().day()) }
+        func sha256(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
+        func roles(_ pairs: (Int, String)...) -> [Assignment] { pairs.map { Assignment(personID: $0.0, role: $0.1) } }
 
         let organizations = [
-            Organization(id: 5, name: "Redhsoft Inc", shorthand: "Redhsoft"),
-            Organization(id: 10, name: "Umweltlabor Lucent", shorthand: "Lucent"),
-            Organization(id: 11, name: "Ionic Instruments GmbH", shorthand: "Ionic"),
-            Organization(id: 12, name: "Spectra Analytik AG", shorthand: "Spectra"),
-            Organization(id: 13, name: "Klarsicht Messtechnik KG", shorthand: "Klarsicht"),
-            Organization(id: 14, name: "Aerosol Systems GmbH", shorthand: "Aerosol"),
+            Organization(id: 1, name: "Redhsoft.org", shorthand: "redhsoft"),
+            Organization(id: 2, name: "Umweltlabor Lucent", shorthand: "Lucent"),
+            Organization(id: 3, name: "Ionic Instruments GmbH", shorthand: "Ionic"),
+            Organization(id: 4, name: "Spectra Analytik AG", shorthand: "Spectra"),
+            Organization(id: 5, name: "Klarsicht Messtechnik KG", shorthand: "Klarsicht"),
+            Organization(id: 6, name: "Aerosol Systems GmbH", shorthand: "Aerosol"),
         ]
 
         let people = [
-            Person(id: noobington, givenName: "Booney", surname: "Noobington", unixAccount: "grindel", organizationID: 5, position: "Administration"),
-            Person(id: doe, givenName: "John", surname: "Doe", unixAccount: "jd", organizationID: 10, position: "Analytik"),
-            Person(id: dorn, givenName: "Michael", surname: "Dorn", unixAccount: "worf", organizationID: 10, position: "Probenahme"),
-            Person(id: simpson, givenName: "Homer", surname: "Simpson", unixAccount: "s7e23", organizationID: 10, position: "Luftmessnetz"),
-            Person(id: picard, givenName: "Jean Luc", surname: "Picard", unixAccount: "p47at", organizationID: 10, position: "Laborleitung"),
-            Person(id: ripley, givenName: "Ellen", surname: "Ripley", unixAccount: "xx121", organizationID: 10, position: "Qualitätssicherung"),
+            Person(id: system, givenName: "Booney", surname: "Noobington", linuxUser: "grindel", organizationID: 1, position: "Administration"),
+            Person(id: doe, givenName: "John", surname: "Doe", linuxUser: "jd", organizationID: 2, position: "Analytik"),
+            Person(id: dorn, givenName: "Michael", surname: "Dorn", linuxUser: "worf", organizationID: 2, position: "Probenahme"),
+            Person(id: simpson, givenName: "Homer", surname: "Simpson", linuxUser: "s7e23", organizationID: 2, position: "Luftmessnetz"),
+            Person(id: picard, givenName: "Jean Luc", surname: "Picard", linuxUser: "p47at", organizationID: 2, position: "Laborleitung"),
+            Person(id: ripley, givenName: "Ellen", surname: "Ripley", linuxUser: "xx121", organizationID: 2, position: "Qualitätssicherung"),
         ]
 
         let crs = [CRS(id: 1, epsg: 4326, name: "WGS 84")]
 
         let sites = [
-            Site(id: 1, name: "Betriebsgelände Laborstraße", description: "Labor- und Verwaltungsgebäude",
+            Site(id: 1, name: "Laborstraße", description: "Labor- und Verwaltungsgebäude",
                  address: Address(street: "Laborstraße", houseNumber: "4", zip: "76131", district: "Oststadt", city: "Karlsruhe"),
                  border: [.init(latitude: 49.0103, longitude: 8.4102), .init(latitude: 49.0106, longitude: 8.4139),
                           .init(latitude: 49.0088, longitude: 8.4145), .init(latitude: 49.0084, longitude: 8.4108)],
                  crsID: 1),
-            Site(id: 2, name: "Wasserwerk Ost", description: "Fassungsgelände mit den Brunnen B3 und B7",
+            Site(id: 2, name: "Wasserwerk Ost", description: "Fassungsgelände, Brunnen B3 und B7",
                  address: Address(street: "Am Wasserwerk", houseNumber: "1", addition: "a", zip: "76227", district: "Durlach", city: "Karlsruhe"),
                  border: [.init(latitude: 48.9990, longitude: 8.4510), .init(latitude: 48.9995, longitude: 8.4600),
                           .init(latitude: 48.9950, longitude: 8.4612), .init(latitude: 48.9944, longitude: 8.4515)],
@@ -93,189 +99,170 @@ enum MockData {
         ]
 
         let matrices = [
-            Matrix(id: 8, name: "Luft", description: "Außen- oder Innenluft"),
-            Matrix(id: 9, name: "Leitungswasser", description: "Aus der Hausinstallation"),
-            Matrix(id: 10, name: "Trinkwasser", description: "Gemäß Trinkwasserverordnung"),
-            Matrix(id: 11, name: "Grundwasser", description: "Aus Brunnen und Messstellen"),
+            Matrix(id: 1, name: "Luft", description: "Außen- oder Innenluft"),
+            Matrix(id: 2, name: "Leitungswasser", description: "Aus der Hausinstallation"),
+            Matrix(id: 3, name: "Trinkwasser", description: "Gemäß Trinkwasserverordnung"),
+            Matrix(id: 4, name: "Grundwasser", description: "Aus Brunnen und Messstellen"),
         ]
-
-        let collectionClasses = [
-            CollectionClass(id: 1, name: "Routineprobe", description: "Routinemäßige Untersuchung von Wasser"),
-            CollectionClass(id: 2, name: "Zeitreihe", description: "Wiederkehrende Luftmessung an einem Spot"),
-            CollectionClass(id: 3, name: "Umfassende Untersuchung", description: "Routine plus Anionen und Metalle"),
-            CollectionClass(id: 4, name: "Grundwassermonitoring", description: "Überwachung der Grundwasserbeschaffenheit"),
-        ]
-        let classActions = [1: [1, 2, 3, 4, 7], 2: [8, 9], 3: [1, 2, 3, 4, 5, 6, 7], 4: [1, 3, 4, 5]]
 
         let dimensions = [
-            PhysicalDimension(id: 1, name: "Dimensionslos", description: "Größen ohne Einheit, z. B. der pH-Wert"),
-            PhysicalDimension(id: 2, name: "Temperatur", description: "Thermodynamische Temperatur"),
-            PhysicalDimension(id: 3, name: "Elektrische Leitfähigkeit", description: "Leitwert pro Länge"),
-            PhysicalDimension(id: 4, name: "Massenkonzentration", description: "Masse pro Volumen"),
-            PhysicalDimension(id: 5, name: "Anzahlkonzentration", description: "Anzahl pro Volumen, z. B. koloniebildende Einheiten"),
+            PhysicalDimension(id: 1, name: "Temperatur", description: "Thermodynamische Temperatur"),
+            PhysicalDimension(id: 2, name: "Elektrische Leitfähigkeit", description: "Leitwert pro Länge"),
+            PhysicalDimension(id: 3, name: "Massenkonzentration", description: "Masse pro Volumen"),
+            PhysicalDimension(id: 4, name: "Anzahlkonzentration", description: "Anzahl pro Volumen, z. B. KBE"),
         ]
 
         let units = [
-            LabUnit(id: 1, name: "Ohne Einheit", notations: [], dimensionID: 1),
-            LabUnit(id: 2, name: "Grad Celsius", notations: ["°C"], dimensionID: 2),
-            LabUnit(id: 3, name: "Mikrosiemens pro Zentimeter", notations: ["µS/cm", "µS cm⁻¹"], dimensionID: 3),
-            LabUnit(id: 4, name: "Milligramm pro Liter", notations: ["mg/L", "mg l⁻¹", "ppm"], dimensionID: 4),
-            LabUnit(id: 5, name: "Mikrogramm pro Liter", notations: ["µg/L", "µg l⁻¹", "ppb"], dimensionID: 4),
-            LabUnit(id: 6, name: "Mikrogramm pro Kubikmeter", notations: ["µg/m³", "µg m⁻³"], dimensionID: 4),
-            LabUnit(id: 7, name: "Koloniebildende Einheiten pro 100 Milliliter", notations: ["KBE/100 mL", "CFU/100 mL"], dimensionID: 5),
+            LabUnit(id: 1, name: "Grad Celsius", notations: ["°C"], dimensionID: 1),
+            LabUnit(id: 2, name: "Mikrosiemens pro Zentimeter", notations: ["µS/cm", "µS cm⁻¹"], dimensionID: 2),
+            LabUnit(id: 3, name: "Milligramm pro Liter", notations: ["mg/L", "mg l⁻¹", "ppm"], dimensionID: 3),
+            LabUnit(id: 4, name: "Mikrogramm pro Liter", notations: ["µg/L", "µg l⁻¹", "ppb"], dimensionID: 3),
+            LabUnit(id: 5, name: "Mikrogramm pro Kubikmeter", notations: ["µg/m³", "µg m⁻³"], dimensionID: 3),
+            LabUnit(id: 6, name: "KBE pro 100 Milliliter", notations: ["KBE/100 mL", "CFU/100 mL"], dimensionID: 4),
         ]
 
-        let variables = [
-            Variable(id: 1, name: "Temperatur", valueClass: .decimal, description: "Wassertemperatur bei der Probenahme", dimensionID: 2),
-            Variable(id: 2, name: "pH-Wert", valueClass: .decimal, description: "Negativer dekadischer Logarithmus der Oxoniumaktivität", dimensionID: 1),
-            Variable(id: 3, name: "Elektrische Leitfähigkeit", valueClass: .decimal, description: "Bezogen auf 25 °C", dimensionID: 3),
-            Variable(id: 4, name: "Nitrat", valueClass: .decimal, description: "NO₃⁻", dimensionID: 4),
-            Variable(id: 5, name: "Chlorid", valueClass: .decimal, description: "Cl⁻", dimensionID: 4),
-            Variable(id: 6, name: "Sulfat", valueClass: .decimal, description: "SO₄²⁻", dimensionID: 4),
-            Variable(id: 7, name: "Blei", valueClass: .decimal, description: "Pb, gesamt", dimensionID: 4),
-            Variable(id: 8, name: "Kupfer", valueClass: .decimal, description: "Cu, gesamt", dimensionID: 4),
-            Variable(id: 9, name: "Nickel", valueClass: .decimal, description: "Ni, gesamt", dimensionID: 4),
-            Variable(id: 10, name: "Escherichia coli", valueClass: .decimal, description: "Fäkalindikator", dimensionID: 5),
-            Variable(id: 11, name: "Coliforme Bakterien", valueClass: .decimal, description: "Hygieneindikator", dimensionID: 5),
-            Variable(id: 12, name: "Feinstaub PM10", valueClass: .decimal, description: "Partikel ≤ 10 µm, Tagesmittel", dimensionID: 4),
-            Variable(id: 13, name: "Feinstaub PM2,5", valueClass: .decimal, description: "Partikel ≤ 2,5 µm, Tagesmittel", dimensionID: 4),
-            Variable(id: 14, name: "Stickstoffdioxid", valueClass: .decimal, description: "NO₂, Tagesmittel", dimensionID: 4),
-            Variable(id: 15, name: "Färbung", valueClass: .text, description: "Visuelle Prüfung", dimensionID: nil),
-            Variable(id: 16, name: "Geruch auffällig", valueClass: .boolean, description: "Olfaktorische Prüfung", dimensionID: nil),
+        let parameters = [
+            Parameter(id: samplingTime, name: "Probenahmezeitpunkt", description: "Wann die Probe genommen wurde", valueClass: .datetime),
+            Parameter(id: 2, name: "Temperatur", description: "Wassertemperatur bei der Probenahme", unitID: 1, valueClass: .decimal),
+            Parameter(id: 3, name: "Färbung", description: "Visuelle Prüfung", valueClass: .text),
+            Parameter(id: 4, name: "Geruch auffällig", description: "Olfaktorische Prüfung", valueClass: .boolean),
+            Parameter(id: 5, name: "pH-Wert", description: "Negativer dekadischer Logarithmus der Oxoniumaktivität", valueClass: .decimal),
+            Parameter(id: 6, name: "Elektrische Leitfähigkeit", description: "Bezogen auf 25 °C", unitID: 2, valueClass: .decimal),
+            Parameter(id: 7, name: "Nitrat", description: "NO₃⁻", unitID: 3, valueClass: .decimal),
+            Parameter(id: 8, name: "Chlorid", description: "Cl⁻", unitID: 3, valueClass: .decimal),
+            Parameter(id: 9, name: "Sulfat", description: "SO₄²⁻", unitID: 3, valueClass: .decimal),
+            Parameter(id: 10, name: "Blei", description: "Pb, gesamt", unitID: 4, valueClass: .decimal),
+            Parameter(id: 11, name: "Kupfer", description: "Cu, gesamt", unitID: 3, valueClass: .decimal),
+            Parameter(id: 12, name: "Nickel", description: "Ni, gesamt", unitID: 4, valueClass: .decimal),
+            Parameter(id: 13, name: "Escherichia coli", description: "Fäkalindikator", unitID: 6, valueClass: .decimal),
+            Parameter(id: 14, name: "Coliforme Bakterien", description: "Hygieneindikator", unitID: 6, valueClass: .decimal),
+            Parameter(id: 15, name: "Feinstaub PM10", description: "Partikel ≤ 10 µm, Tagesmittel", unitID: 5, valueClass: .decimal),
+            Parameter(id: 16, name: "Feinstaub PM2,5", description: "Partikel ≤ 2,5 µm, Tagesmittel", unitID: 5, valueClass: .decimal),
+            Parameter(id: 17, name: "Stickstoffdioxid", description: "NO₂, Tagesmittel", unitID: 5, valueClass: .decimal),
+        ]
+
+        let sop = "/srv/lucent/sop/", law = "https://www.gesetze-im-internet.de/"
+        let documents: [Document] = [
+            (1, "SOP-001 Probenahme Wasser", sop + "SOP-001_r3.pdf", nil, true),
+            (2, "SOP-002 pH-Wert", sop + "SOP-002_r2.pdf", nil, true),
+            (3, "SOP-003 Leitfähigkeit", sop + "SOP-003_r1.pdf", nil, true),
+            (4, "SOP-004 Anionen (IC)", sop + "SOP-004_r4.pdf", nil, true),
+            (5, "SOP-005 Metalle (ICP-MS)", sop + "SOP-005_r2.pdf", nil, true),
+            (6, "SOP-005 Entwurf Rev. 3", sop + "entwurf/SOP-005_r3.docx", nil, false),
+            (7, "SOP-006 Mikrobiologie", sop + "SOP-006_r1.pdf", nil, true),
+            (8, "SOP-007 Feinstaub", sop + "SOP-007_r2.pdf", nil, true),
+            (9, "SOP-008 Stickstoffdioxid", sop + "SOP-008_r1.pdf", nil, true),
+            (10, "SOP-009 Datenfreigabe", sop + "SOP-009_r1.pdf", nil, true),
+            (11, "Gerätehandbuch IC-3", nil, "https://docs.example.org/ic3/handbuch.pdf", true),
+            (12, "Trinkwasserverordnung (TrinkwV)", nil, law + "trinkwv_2023/", true),
+            (13, "Grundwasserverordnung (GrwV)", nil, law + "grwv_2010/", true),
+            (14, "39. BImSchV (Luftqualität)", nil, law + "bimschv_39/", true),
+        ].map { (id: Int, name: String, path: String?, url: String?, accepted: Bool) in
+            Document(id: id, name: name, url: url.flatMap(URL.init(string:)), filePath: path, accepted: accepted,
+                     sha256: sha256(path ?? url ?? name))
+        }
+
+        let thresholds: [Threshold] = [
+            (4, 12, nil, 0, "Ohne anormale Veränderung"), (5, 12, 6.5, 9.5, "Anlage 3"), (6, 12, nil, 2790, "Anlage 3"),
+            (7, 12, nil, 50, "Anlage 2 Teil I"), (8, 12, nil, 250, "Anlage 3"), (9, 12, nil, 250, "Anlage 3"),
+            (10, 12, nil, 10, "Anlage 2 Teil II"), (11, 12, nil, 2, "Anlage 2 Teil II"), (12, 12, nil, 20, "Anlage 2 Teil II"),
+            (13, 12, nil, 0, "Anlage 1"), (14, 12, nil, 0, "Anlage 3"),
+            (7, 13, nil, 50, "Schwellenwert Anlage 2"), (8, 13, nil, 250, "Schwellenwert Anlage 2"),
+            (9, 13, nil, 250, "Schwellenwert Anlage 2"), (10, 13, nil, 10, "Schwellenwert Anlage 2"),
+            (15, 14, nil, 50, "Tagesgrenzwert"), (16, 14, nil, 25, "Jahresgrenzwert"), (17, 14, nil, 40, "Jahresgrenzwert"),
+        ].enumerated().map { index, row in
+            let (parameterID, documentID, lower, upper, description): (Int, Int, Double?, Double?, String) = row
+            return Threshold(id: index + 1, parameterID: parameterID, documentID: documentID, lowerLimit: lower,
+                             upperLimit: upper, description: description)
+        }
+
+        let strict = { (id: Int) in Dependency(actionID: id, kind: .strict, description: "Erst nach der Probenahme") }
+        let actions = [
+            LabAction(id: 1, name: "Probenahme Wasser", iteration: date("2024-03-01"), active: true,
+                      description: "Entnahme nach DIN ISO 5667-5, Temperatur vor Ort.", documentIDs: [1, 12],
+                      deviceIDs: [11], people: roles((dorn, "worker"), (picard, "manager")), dependencies: []),
+            LabAction(id: 2, name: "Sensorische Prüfung", iteration: date("2023-06-01"), active: true,
+                      description: "Färbung und Geruch nach DIN EN 1622.", documentIDs: [1, 12], deviceIDs: [],
+                      people: roles((dorn, "worker")), dependencies: [strict(1)]),
+            LabAction(id: 3, name: "pH-Wert", iteration: date("2024-09-15"), active: true,
+                      description: "DIN EN ISO 10523, Glaselektrode, Drei-Punkt-Kalibrierung.", documentIDs: [2, 12],
+                      deviceIDs: [1, 2], people: roles((doe, "worker"), (picard, "manager"), (ripley, "auditor")),
+                      dependencies: [strict(1)]),
+            LabAction(id: 4, name: "Elektrische Leitfähigkeit", iteration: date("2023-01-10"), active: true,
+                      description: "DIN EN 27888, kompensiert auf 25 °C.", documentIDs: [3, 12], deviceIDs: [3],
+                      people: roles((doe, "worker")), dependencies: [strict(1)]),
+            LabAction(id: 5, name: "Anionen (IC)", iteration: date("2025-02-01"), active: true,
+                      description: "Nitrat, Chlorid und Sulfat nach DIN EN ISO 10304-1.", documentIDs: [4, 11, 12, 13],
+                      deviceIDs: [4], people: roles((doe, "worker"), (picard, "manager")),
+                      dependencies: [strict(1), Dependency(actionID: 4, kind: .possibility,
+                                                           description: "Ionenbilanz mit der Leitfähigkeit plausibilisieren")]),
+            LabAction(id: 6, name: "Metalle (ICP-MS)", iteration: date("2024-11-20"), active: true,
+                      description: "DIN EN ISO 17294-2, Stagnationsprobe S0. Überschreitungen werden wiederholt.",
+                      documentIDs: [5, 6, 12, 13], deviceIDs: [5], people: roles((picard, "worker"), (ripley, "auditor")),
+                      dependencies: [strict(1)]),
+            LabAction(id: 7, name: "E. coli und coliforme Bakterien", iteration: date("2023-05-05"), active: true,
+                      description: "Membranfiltration nach DIN EN ISO 9308-1, 21 h bei 36 °C.", documentIDs: [7, 12],
+                      deviceIDs: [6], people: roles((ripley, "worker")), dependencies: [strict(1)]),
+            LabAction(id: 8, name: "Feinstaub (gravimetrisch)", iteration: date("2024-04-01"), active: true,
+                      description: "DIN EN 12341, 24-Stunden-Probenahme auf Filter.", documentIDs: [8, 14],
+                      deviceIDs: [7, 8, 10], people: roles((simpson, "worker"), (doe, "worker")), dependencies: []),
+            LabAction(id: 9, name: "Stickstoffdioxid", iteration: date("2023-09-01"), active: true,
+                      description: "Chemilumineszenz nach DIN EN 14211, Tagesmittel.", documentIDs: [9, 14], deviceIDs: [9],
+                      people: roles((simpson, "worker")), dependencies: []),
+            LabAction(id: 10, name: "pH-Wert", iteration: date("2021-02-01"), active: false,
+                      description: "Vorgängerversion mit Zwei-Punkt-Kalibrierung.", documentIDs: [2], deviceIDs: [2],
+                      people: roles((doe, "worker")), dependencies: []),
         ]
 
         let devices = [
-            Device(id: 1, name: "pH-Meter Lab 1", number: "PH-2207-114", manufacturerID: 11, operatorID: doe, active: true),
-            Device(id: 2, name: "pH-Meter Lab 2 (Reserve)", number: "PH-1903-027", manufacturerID: 11, operatorID: doe, active: false),
-            Device(id: 3, name: "Leitfähigkeitsmessgerät LF 4", number: "LF-2105-033", manufacturerID: 11, operatorID: doe, active: true),
-            Device(id: 4, name: "Ionenchromatograph IC-3", number: "IC3-0098", manufacturerID: 12, operatorID: doe, active: true),
-            Device(id: 5, name: "ICP-MS Q2", number: "ICPMS-Q2-4411", manufacturerID: 12, operatorID: picard, active: true),
-            Device(id: 6, name: "Brutschrank 36 °C", number: "BS36-002", manufacturerID: 13, operatorID: ripley, active: true),
-            Device(id: 7, name: "Feinstaubsammler LVS-3 Nr. 1", number: "LVS3-1187", manufacturerID: 14, operatorID: simpson, active: true),
-            Device(id: 8, name: "Feinstaubsammler LVS-3 Nr. 2", number: "LVS3-1192", manufacturerID: 14, operatorID: simpson, active: true),
-            Device(id: 9, name: "NO₂-Analysator", number: "NOX500-221", manufacturerID: 14, operatorID: simpson, active: true),
-            Device(id: 10, name: "Feinwaage XS205", number: "XS205-778", manufacturerID: 13, operatorID: doe, active: true),
-            Device(id: 11, name: "Einstichthermometer", number: "TH-0042", manufacturerID: 13, operatorID: dorn, active: true),
+            Device(id: 1, name: "pH-Meter Lab 1", number: 2207114, manufacturerID: 3, operatorID: 2, active: true),
+            Device(id: 2, name: "pH-Meter Lab 2", number: 1903027, manufacturerID: 3, operatorID: 2, active: false),
+            Device(id: 3, name: "Leitfähigkeitsmessgerät LF 4", number: 2105033, manufacturerID: 3, operatorID: 2, active: true),
+            Device(id: 4, name: "Ionenchromatograph IC-3", number: 98, manufacturerID: 4, operatorID: 2, active: true),
+            Device(id: 5, name: "ICP-MS Q2", number: 4411, manufacturerID: 4, operatorID: 2, active: true),
+            Device(id: 6, name: "Brutschrank 36 °C", number: 2, manufacturerID: 5, operatorID: 2, active: true),
+            Device(id: 7, name: "Feinstaubsammler LVS-3", number: 1187, manufacturerID: 6, operatorID: 2, active: true),
+            Device(id: 8, name: "Feinstaubsammler LVS-3", number: 1192, manufacturerID: 6, operatorID: 2, active: true),
+            Device(id: 9, name: "NO₂-Analysator", number: 500221, manufacturerID: 6, operatorID: 2, active: true),
+            Device(id: 10, name: "Feinwaage XS205", number: 205778, manufacturerID: 5, operatorID: 2, active: true),
+            Device(id: 11, name: "Einstichthermometer", number: 42, manufacturerID: 5, operatorID: 2, active: true),
         ]
 
-        var documentID = 0
-        func document(_ name: String, path: String? = nil, url: String? = nil, accepted: Bool = true) -> SOPDocument {
-            documentID += 1
-            let digest = SHA256.hash(data: Data((path ?? url ?? name).utf8))
-            return SOPDocument(id: documentID, name: name, url: url.flatMap(URL.init(string:)), filePath: path,
-                               accepted: accepted, sha256: digest.map { String(format: "%02x", $0) }.joined())
+        let effects: [Effect] = [
+            (1, 1, 1, nil, .absolute, nil), (2, 1, 2, 0.2, .absolute, nil), (3, 2, 3, nil, .absolute, nil),
+            (4, 2, 4, nil, .absolute, nil), (5, 3, 5, 0.05, .absolute, nil), (6, 4, 6, 2, .relative, "κ25 = κT · f25(T)"),
+            (7, 5, 7, 5, .relative, nil), (8, 5, 8, 5, .relative, nil), (9, 5, 9, 5, .relative, nil),
+            (10, 6, 10, 10, .relative, nil), (11, 6, 11, 8, .relative, nil), (12, 6, 12, 10, .relative, nil),
+            (13, 7, 13, nil, .absolute, nil), (14, 7, 14, nil, .absolute, nil), (15, 8, 1, nil, .absolute, nil),
+            (16, 8, 15, 7, .relative, "c = (m2 − m1) / V"), (17, 8, 16, 7, .relative, "c = (m2 − m1) / V"),
+            (18, 9, 17, 7.5, .relative, nil), (19, 10, 5, 0.1, .absolute, nil),
+        ].map { (id: Int, action: Int, parameter: Int, uncertainty: Double?, kind: UncertaintyClass, calculation: String?) in
+            Effect(id: id, actionID: action, parameterID: parameter, uncertainty: uncertainty, uncertaintyClass: kind,
+                   calculation: calculation)
         }
-        func roles(_ pairs: (Int, String)...) -> [Assignment] { pairs.map { Assignment(personID: $0.0, role: $0.1) } }
 
-        let sops = [
-            SOP(id: 1, name: "SOP-001 Probenahme Wasser", active: true,
-                documents: [document("Probenahme Wasser, Rev. 3", path: "/srv/lucent/sop/SOP-001_r3.pdf"),
-                            document("Probenahme Wasser, Rev. 2 (ersetzt)", path: "/srv/lucent/sop/SOP-001_r2.pdf", accepted: false)],
-                people: roles((dorn, "Autor"), (ripley, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 2, name: "SOP-002 pH-Wert", active: true,
-                documents: [document("pH-Wert, Rev. 2", path: "/srv/lucent/sop/SOP-002_r2.pdf")],
-                people: roles((doe, "Autor"), (ripley, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 3, name: "SOP-003 Elektrische Leitfähigkeit", active: true,
-                documents: [document("Elektrische Leitfähigkeit, Rev. 1", path: "/srv/lucent/sop/SOP-003_r1.pdf")],
-                people: roles((doe, "Autor"), (ripley, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 4, name: "SOP-004 Anionen mittels IC", active: true,
-                documents: [document("Anionen mittels IC, Rev. 4", path: "/srv/lucent/sop/SOP-004_r4.pdf"),
-                            document("Gerätehandbuch IC-3", url: "https://docs.example.org/ic3/handbuch.pdf")],
-                people: roles((doe, "Autor"), (ripley, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 5, name: "SOP-005 Metalle mittels ICP-MS", active: true,
-                documents: [document("Metalle mittels ICP-MS, Rev. 2", path: "/srv/lucent/sop/SOP-005_r2.pdf"),
-                            document("Entwurf Rev. 3", path: "/srv/lucent/sop/entwurf/SOP-005_r3.docx", accepted: false)],
-                people: roles((picard, "Autor"), (ripley, "Prüfung"))),
-            SOP(id: 6, name: "SOP-006 E. coli und coliforme Bakterien", active: true,
-                documents: [document("Membranfiltration, Rev. 1", path: "/srv/lucent/sop/SOP-006_r1.pdf")],
-                people: roles((ripley, "Autor"), (picard, "Freigabe"))),
-            SOP(id: 7, name: "SOP-007 Feinstaub gravimetrisch", active: true,
-                documents: [document("Feinstaub gravimetrisch, Rev. 2", path: "/srv/lucent/sop/SOP-007_r2.pdf")],
-                people: roles((simpson, "Autor"), (doe, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 8, name: "SOP-008 Stickstoffdioxid", active: true,
-                documents: [document("Stickstoffdioxid, Rev. 1", path: "/srv/lucent/sop/SOP-008_r1.pdf")],
-                people: roles((simpson, "Autor"), (picard, "Freigabe"))),
-            SOP(id: 9, name: "SOP-009 Datenfreigabe (Vier-Augen-Prinzip)", active: true,
-                documents: [document("Datenfreigabe, Rev. 1", path: "/srv/lucent/sop/SOP-009_r1.pdf")],
-                people: roles((ripley, "Autor"), (noobington, "Prüfung"), (picard, "Freigabe"))),
-            SOP(id: 10, name: "SOP-010 Probenahme Luft", active: false,
-                documents: [document("Entwurf", path: "/srv/lucent/sop/entwurf/SOP-010.docx", accepted: false)],
-                people: roles((simpson, "Autor"))),
-        ]
+        let coefficients = [Coefficient(id: 1, effectIDs: [6, 2], description: "Die Leitfähigkeit wird auf die Probentemperatur bezogen")]
 
-        let actions = [
-            LabAction(id: 1, name: "Probenahme Wasser", standard: "DIN ISO 5667-5", iteration: 3, active: true,
-                      description: "Entnahme der Probe und Messung der Wassertemperatur vor Ort.",
-                      sopID: 1, deviceIDs: [11], people: roles((dorn, "Verantwortlich")), dependsOn: [], implies: [2]),
-            LabAction(id: 2, name: "Sensorische Prüfung", standard: "DIN EN 1622", iteration: 1, active: true,
-                      description: "Färbung und Geruch, direkt nach der Probenahme.",
-                      sopID: 1, deviceIDs: [], people: roles((dorn, "Prüfer")), dependsOn: [1], implies: []),
-            LabAction(id: 3, name: "pH-Wert", standard: "DIN EN ISO 10523", iteration: 2, active: true,
-                      description: "Potentiometrische Messung mit Glaselektrode, Drei-Punkt-Kalibrierung.",
-                      sopID: 2, deviceIDs: [1, 2], people: roles((doe, "Analyst"), (picard, "Verantwortlich")), dependsOn: [1], implies: []),
-            LabAction(id: 4, name: "Elektrische Leitfähigkeit", standard: "DIN EN 27888", iteration: 1, active: true,
-                      description: "Konduktometrische Messung mit Temperaturkompensation auf 25 °C.",
-                      sopID: 3, deviceIDs: [3], people: roles((doe, "Analyst")), dependsOn: [1], implies: []),
-            LabAction(id: 5, name: "Anionen (IC)", standard: "DIN EN ISO 10304-1", iteration: 4, active: true,
-                      description: "Nitrat, Chlorid und Sulfat mittels Ionenchromatographie. Die Ionenbilanz wird mit der Leitfähigkeit plausibilisiert.",
-                      sopID: 4, deviceIDs: [4], people: roles((doe, "Analyst"), (picard, "Verantwortlich")), dependsOn: [1], implies: [4]),
-            LabAction(id: 6, name: "Metalle (ICP-MS)", standard: "DIN EN ISO 17294-2", iteration: 2, active: true,
-                      description: "Stagnationsprobe S0. Eine Überschreitung wird mit einer Wiederholungsmessung bestätigt.",
-                      sopID: 5, deviceIDs: [5], people: roles((picard, "Analyst"), (ripley, "Prüfer")), dependsOn: [1], implies: []),
-            LabAction(id: 7, name: "E. coli und coliforme Bakterien", standard: "DIN EN ISO 9308-1", iteration: 1, active: true,
-                      description: "Membranfiltration, Bebrütung 21 ± 3 h bei 36 °C.",
-                      sopID: 6, deviceIDs: [6], people: roles((ripley, "Analyst")), dependsOn: [1], implies: []),
-            LabAction(id: 8, name: "Feinstaub (gravimetrisch)", standard: "DIN EN 12341", iteration: 2, active: true,
-                      description: "24-Stunden-Probenahme auf Filter, Wägung vor und nach der Beaufschlagung.",
-                      sopID: 7, deviceIDs: [7, 8, 10], people: roles((simpson, "Probenehmer"), (doe, "Analyst")), dependsOn: [], implies: []),
-            LabAction(id: 9, name: "Stickstoffdioxid", standard: "DIN EN 14211", iteration: 1, active: true,
-                      description: "Chemilumineszenz, Tagesmittelwert.",
-                      sopID: 8, deviceIDs: [9], people: roles((simpson, "Verantwortlich")), dependsOn: [], implies: []),
-        ]
-
-        let actionVariables = [
-            ActionVariable(id: 1, actionID: 1, variableID: 1, unitID: 2, uncertainty: 0.2, uncertaintyClass: .absolute),
-            ActionVariable(id: 2, actionID: 2, variableID: 15, unitID: nil, uncertainty: nil, uncertaintyClass: .absolute),
-            ActionVariable(id: 3, actionID: 2, variableID: 16, unitID: nil, uncertainty: nil, uncertaintyClass: .absolute, upperLimit: 0),
-            ActionVariable(id: 4, actionID: 3, variableID: 2, unitID: 1, uncertainty: 0.05, uncertaintyClass: .absolute,
-                           decimals: 2, lowerLimit: 6.5, upperLimit: 9.5),
-            ActionVariable(id: 5, actionID: 4, variableID: 3, unitID: 3, uncertainty: 2, uncertaintyClass: .relative,
-                           calculation: "κ₂₅ = κ_T · f₂₅(T)", decimals: 0, upperLimit: 2790),
-            ActionVariable(id: 6, actionID: 5, variableID: 4, unitID: 4, uncertainty: 5, uncertaintyClass: .relative, upperLimit: 50),
-            ActionVariable(id: 7, actionID: 5, variableID: 5, unitID: 4, uncertainty: 5, uncertaintyClass: .relative, upperLimit: 250),
-            ActionVariable(id: 8, actionID: 5, variableID: 6, unitID: 4, uncertainty: 5, uncertaintyClass: .relative, upperLimit: 250),
-            ActionVariable(id: 9, actionID: 6, variableID: 7, unitID: 5, uncertainty: 10, uncertaintyClass: .relative, upperLimit: 10),
-            ActionVariable(id: 10, actionID: 6, variableID: 8, unitID: 4, uncertainty: 8, uncertaintyClass: .relative, decimals: 2, upperLimit: 2),
-            ActionVariable(id: 11, actionID: 6, variableID: 9, unitID: 5, uncertainty: 10, uncertaintyClass: .relative, upperLimit: 20),
-            ActionVariable(id: 12, actionID: 7, variableID: 10, unitID: 7, uncertainty: nil, uncertaintyClass: .absolute, decimals: 0, upperLimit: 0),
-            ActionVariable(id: 13, actionID: 7, variableID: 11, unitID: 7, uncertainty: nil, uncertaintyClass: .absolute, decimals: 0, upperLimit: 0),
-            ActionVariable(id: 14, actionID: 8, variableID: 12, unitID: 6, uncertainty: 7, uncertaintyClass: .relative,
-                           calculation: "c = (m₂ − m₁) / V", decimals: 0, upperLimit: 50),
-            ActionVariable(id: 15, actionID: 8, variableID: 13, unitID: 6, uncertainty: 7, uncertaintyClass: .relative,
-                           calculation: "c = (m₂ − m₁) / V", decimals: 0, upperLimit: 25),
-            ActionVariable(id: 16, actionID: 9, variableID: 14, unitID: 6, uncertainty: 7.5, uncertaintyClass: .relative, decimals: 0, upperLimit: 40),
-        ]
-
-        // Collections: who samples what where, how often (days) and with which offset (days ago).
+        // Collections: who samples what where, with which actions, how often (days), first offset (days ago).
         struct Schedule {
             var spotID: Int? = nil
             var siteID: Int? = nil
-            var matrixID: Int, classID: Int, every: Int, offset: Int, samplerID: Int
+            var matrixID: Int, collectionClass: String, actions: [Int], every: Int, offset: Int, samplerID: Int
         }
+        let waterRoutine = [1, 2, 3, 4, 7], waterFull = [1, 2, 3, 4, 5, 6, 7], groundWater = [1, 3, 4, 5], air = [8, 9]
         let schedules = [
-            Schedule(spotID: 3, matrixID: 8, classID: 2, every: 7, offset: 1, samplerID: simpson),
-            Schedule(spotID: 11, matrixID: 8, classID: 2, every: 7, offset: 2, samplerID: simpson),
-            Schedule(spotID: 2, matrixID: 8, classID: 2, every: 14, offset: 5, samplerID: simpson),
-            Schedule(spotID: 4, matrixID: 9, classID: 3, every: 14, offset: 3, samplerID: dorn),
-            Schedule(spotID: 5, matrixID: 9, classID: 1, every: 14, offset: 10, samplerID: dorn),
-            Schedule(spotID: 6, matrixID: 10, classID: 1, every: 7, offset: 0, samplerID: dorn),
-            Schedule(spotID: 7, matrixID: 10, classID: 1, every: 7, offset: 4, samplerID: dorn),
-            Schedule(spotID: 7, matrixID: 10, classID: 3, every: 28, offset: 6, samplerID: dorn),
-            Schedule(spotID: 6, matrixID: 10, classID: 3, every: 28, offset: 20, samplerID: dorn),
-            Schedule(spotID: 8, matrixID: 11, classID: 4, every: 14, offset: 2, samplerID: dorn),
-            Schedule(spotID: 9, matrixID: 11, classID: 4, every: 14, offset: 9, samplerID: dorn),
-            Schedule(spotID: 10, matrixID: 11, classID: 4, every: 7, offset: 3, samplerID: ripley),
-            Schedule(siteID: 3, matrixID: 11, classID: 4, every: 28, offset: 12, samplerID: ripley),
+            Schedule(spotID: 3, matrixID: 1, collectionClass: "time series", actions: air, every: 7, offset: 1, samplerID: simpson),
+            Schedule(spotID: 11, matrixID: 1, collectionClass: "time series", actions: air, every: 7, offset: 2, samplerID: simpson),
+            Schedule(spotID: 2, matrixID: 1, collectionClass: "time series", actions: air, every: 14, offset: 5, samplerID: simpson),
+            Schedule(spotID: 4, matrixID: 2, collectionClass: "spot sample", actions: waterFull, every: 14, offset: 3, samplerID: dorn),
+            Schedule(spotID: 5, matrixID: 2, collectionClass: "spot sample", actions: waterRoutine, every: 14, offset: 10, samplerID: dorn),
+            Schedule(spotID: 6, matrixID: 3, collectionClass: "spot sample", actions: waterRoutine, every: 7, offset: 0, samplerID: dorn),
+            Schedule(spotID: 7, matrixID: 3, collectionClass: "spot sample", actions: waterRoutine, every: 7, offset: 4, samplerID: dorn),
+            Schedule(spotID: 7, matrixID: 3, collectionClass: "spot sample", actions: waterFull, every: 28, offset: 6, samplerID: dorn),
+            Schedule(spotID: 8, matrixID: 4, collectionClass: "spot sample", actions: groundWater, every: 14, offset: 2, samplerID: dorn),
+            Schedule(spotID: 9, matrixID: 4, collectionClass: "spot sample", actions: groundWater, every: 14, offset: 9, samplerID: dorn),
+            Schedule(spotID: 10, matrixID: 4, collectionClass: "spot sample", actions: groundWater, every: 7, offset: 3, samplerID: ripley),
+            Schedule(siteID: 3, matrixID: 4, collectionClass: "mixed sample", actions: groundWater, every: 28, offset: 12, samplerID: ripley),
         ]
         let horizon = 84
 
@@ -290,147 +277,127 @@ enum MockData {
         }
         drafts.sort { $0.sampledAt < $1.sampledAt }
 
+        let workers = [1: dorn, 2: dorn, 3: doe, 4: doe, 5: doe, 6: picard, 7: ripley, 8: doe, 9: simpson]
         let numbering = NumberingScheme.lucent
-        let firstSequence = 3000
         var collections: [LabCollection] = []
-        for (index, draft) in drafts.enumerated() {
-            collections.append(LabCollection(
-                id: index + 1, name: numbering.identifier(for: firstSequence + index)!,
-                matrixID: draft.schedule.matrixID, classID: draft.schedule.classID,
-                spotID: draft.schedule.spotID, siteID: draft.schedule.siteID,
-                sampledAt: draft.sampledAt, sampledByID: draft.schedule.samplerID))
-        }
-
-        // Values: older collections are complete and accepted, recent ones still in progress.
-        let actionsByID = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
         var values: [LabValue] = []
-        for collection in collections {
-            let age = now.timeIntervalSince(collection.sampledAt) / 86_400
-            let progress = 1 - age / Double(horizon)  // 0 = oldest, 1 = now
-            let planned = classActions[collection.classID] ?? []
+        var rawValues: [RawValue] = []
+        for (index, draft) in drafts.enumerated() {
+            let schedule = draft.schedule
+            let collection = LabCollection(
+                id: index + 1, name: numbering.identifier(for: 3000 + index + 1)!, matrixID: schedule.matrixID,
+                collectionClass: schedule.collectionClass, spotID: schedule.spotID, siteID: schedule.siteID,
+                sampledAt: draft.sampledAt, sampledByID: schedule.samplerID)
+            collections.append(collection)
+            var slots: [Int: Int] = [:]
+            for effect in effects where schedule.actions.contains(effect.actionID) {
+                values.append(LabValue(id: values.count + 1, collectionID: collection.id, effectID: effect.id))
+                slots[effect.id] = values.count
+            }
 
-            let actionsDone: Int
-            var acceptedActions: Int
+            let age = now.timeIntervalSince(draft.sampledAt) / 86_400
+            let progress = 1 - age / Double(horizon)
+            let planned = schedule.actions
+            let actionsDone: Int, acceptedActions: Int
             switch age {
-            case 10...:
-                actionsDone = planned.count; acceptedActions = planned.count
-            case 4..<10:
-                actionsDone = planned.count
-                acceptedActions = rng.chance(0.5) ? planned.count : planned.count / 2
-            case 1.5..<4:
-                actionsDone = rng.chance(0.4) ? planned.count : Int.random(in: 1...max(1, planned.count - 1), using: &rng)
-                acceptedActions = 0
-            default:
-                actionsDone = rng.chance(0.5) ? 0 : 1
-                acceptedActions = 0
+            case 10...: (actionsDone, acceptedActions) = (planned.count, planned.count)
+            case 4..<10: (actionsDone, acceptedActions) = (planned.count, rng.chance(0.5) ? planned.count : planned.count / 2)
+            case 1.5..<4: (actionsDone, acceptedActions) = (rng.chance(0.4) ? planned.count : Int.random(in: 1...max(1, planned.count - 1), using: &rng), 0)
+            default: (actionsDone, acceptedActions) = (rng.chance(0.5) ? 0 : 1, 0)
             }
 
             for (actionIndex, actionID) in planned.prefix(actionsDone).enumerated() {
-                let action = actionsByID[actionID]!
-                let measuredAt = min(now, collection.sampledAt.addingTimeInterval(
+                let measuredAt = min(now, draft.sampledAt.addingTimeInterval(
                     Double(actionIndex) * 5 * 3600 + Double.random(in: 0...3600, using: &rng)))
+                let action = actions.first { $0.id == actionID }!
                 var deviceID = action.deviceIDs.first
-                if actionID == 8 { deviceID = collection.spotID == 11 ? 8 : 7 }
-                let personID = action.people.first { $0.role == "Analyst" }?.personID
-                    ?? action.people.first?.personID ?? collection.sampledByID
-
-                for av in actionVariables where av.actionID == actionID {
-                    let reading = mockReading(av, collection: collection, progress: progress, rng: &rng)
-                    let accepted = actionIndex < acceptedActions
-                    values.append(LabValue(id: values.count + 1, collectionID: collection.id, actionVariableID: av.id,
-                                           repetition: 1, reading: reading, accepted: accepted,
-                                           measuredAt: measuredAt, personID: personID, deviceID: deviceID))
-                    // A lead value above the limit is confirmed by a repetition.
-                    if av.id == 9, case .decimal(let lead) = reading, lead > 10 {
-                        let repeated = (lead * rng.normal(1, 0.04) * 10).rounded() / 10
-                        values.append(LabValue(id: values.count + 1, collectionID: collection.id, actionVariableID: av.id,
-                                               repetition: 2, reading: .decimal(repeated), accepted: accepted,
-                                               measuredAt: measuredAt.addingTimeInterval(3 * 3600),
-                                               personID: personID, deviceID: deviceID))
+                if actionID == 8 { deviceID = schedule.spotID == 11 ? 8 : 7 }
+                for effect in effects where effect.actionID == actionID {
+                    let parameter = parameters.first { $0.id == effect.parameterID }!
+                    var readings: [Reading]
+                    var t = measuredAt, person = workers[actionID]!
+                    if parameter.id == samplingTime {
+                        readings = [.datetime(draft.sampledAt)]
+                        t = draft.sampledAt
+                        person = schedule.samplerID
+                    } else {
+                        readings = [mockReading(parameter.id, spotID: schedule.spotID, progress: progress, rng: &rng)]
+                        // A lead value above the limit is measured again.
+                        if parameter.id == 10, case .decimal(let lead) = readings[0], lead > 10 {
+                            readings.append(.decimal((lead * rng.normal(1, 0.04) * 10).rounded() / 10))
+                        }
+                    }
+                    for (repetition, reading) in readings.enumerated() {
+                        rawValues.append(RawValue(
+                            id: rawValues.count + 1, valueID: slots[effect.id]!, t: t.addingTimeInterval(Double(repetition) * 3 * 3600),
+                            personID: person, deviceID: deviceID, unitID: parameter.unitID, reading: reading,
+                            accepted: actionIndex < acceptedActions))
                     }
                 }
             }
         }
 
         let tasks = [
-            LabTask(id: 1, request: "pH-Meter Lab 1 kalibrieren", description: "Drei-Punkt-Kalibrierung mit Puffer 4, 7 und 10, Steilheit dokumentieren.",
+            LabTask(id: 1, request: "pH-Meter Lab 1 kalibrieren", description: "Drei-Punkt-Kalibrierung mit Puffer 4, 7 und 10.",
                     assignerID: picard, assigneeID: doe, deadline: day(-1), done: false),
-            LabTask(id: 2, request: "Blei an Zapfstelle 2.14 nachprüfen", description: "Stagnationsproben S0 und S1 nehmen, Hausinstallation im Altbau prüfen.",
+            LabTask(id: 2, request: "Blei an Zapfstelle 2.14 nachprüfen", description: "Stagnationsproben S0 und S1 nehmen.",
                     assignerID: ripley, assigneeID: dorn, deadline: day(2), done: false),
             LabTask(id: 3, request: "Offene Kollektionen freigeben", description: "Vier-Augen-Prinzip nach SOP-009.",
                     assignerID: picard, assigneeID: ripley, deadline: day(1, hour: 12), done: false),
-            LabTask(id: 4, request: "SOP-005 überarbeiten", description: "Entwurf Rev. 3 mit den neuen Kalibrierstandards abschließen.",
-                    assignerID: ripley, assigneeID: picard, deadline: day(9), done: false),
-            LabTask(id: 5, request: "Feinstaubfilter im Messcontainer wechseln", description: "Filterkassetten für 14 Tage einlegen, Blindfilter wiegen.",
-                    assignerID: doe, assigneeID: simpson, deadline: day(0, hour: 18), done: false),
-            LabTask(id: 6, request: "Nitrat-Trend an GWM 12 melden", description: "Seit Wochen über 50 mg/L. Bericht an die Wasserbehörde.",
+            LabTask(id: 4, request: "Nitrat-Trend an GWM 12 melden", description: "Bericht an die Wasserbehörde.",
                     assignerID: picard, assigneeID: picard, deadline: day(5), done: false),
-            LabTask(id: 7, request: "Ringversuch Anionen anmelden", description: "Anmeldeschluss beachten.",
-                    assignerID: picard, assigneeID: doe, deadline: day(21), done: false),
-            LabTask(id: 8, request: "lucentLIMS an lucentBASE anbinden", description: "Die Mock-Daten durch die echte Datenbank ersetzen.",
-                    assignerID: noobington, assigneeID: noobington, deadline: day(30), done: false),
-            LabTask(id: 9, request: "Temperaturlogger Brutschrank auslesen", description: "",
-                    assignerID: ripley, assigneeID: ripley, deadline: day(-4), done: true),
-            LabTask(id: 10, request: "Probenflaschen nachbestellen", description: "500 mL PE und 250 mL Glas, steril.",
-                    assignerID: dorn, assigneeID: noobington, deadline: day(-6), done: true),
+            LabTask(id: 5, request: "Feinstaubfilter wechseln", description: "Filterkassetten für 14 Tage einlegen.",
+                    assignerID: doe, assigneeID: simpson, deadline: day(0, hour: 18), done: false),
+            LabTask(id: 6, request: "lucentLIMS an lucentAPI anbinden", description: "Die Mock-Daten durch die API ersetzen.",
+                    assignerID: system, assigneeID: system, deadline: day(30), done: false),
+            LabTask(id: 7, request: "Probenflaschen nachbestellen", description: "500 mL PE und 250 mL Glas, steril.",
+                    assignerID: dorn, assigneeID: system, deadline: day(-6), done: true),
         ]
 
         let messages = [
-            Message(id: 1, senderID: picard, receiverID: noobington, subject: "Freigaberechte für Ellen",
+            Message(id: 1, senderID: picard, receiverID: system, subject: "Freigaberechte für Ellen",
                     body: "Kannst du Ellen die Rechte für die Freigabe von Kollektionen geben? Sie übernimmt ab Montag die QS.",
                     read: false, sentAt: now.addingTimeInterval(-2 * 3600)),
-            Message(id: 2, senderID: ripley, receiverID: noobington, subject: "Nitrat an GWM 12",
+            Message(id: 2, senderID: ripley, receiverID: system, subject: "Nitrat an GWM 12",
                     body: "Der Nitratwert an GWM 12 liegt über 50 mg/L. Kannst du mir die Zeitreihe exportieren?",
                     read: false, sentAt: now.addingTimeInterval(-5 * 3600)),
-            Message(id: 3, senderID: simpson, receiverID: noobington, subject: "Messcontainer",
+            Message(id: 3, senderID: simpson, receiverID: system, subject: "Messcontainer",
                     body: "Filterwechsel ist erledigt. Die Donuts im Pausenraum leider auch.",
                     read: true, sentAt: now.addingTimeInterval(-26 * 3600)),
-            Message(id: 4, senderID: doe, receiverID: noobington, subject: "IC-3 wieder online",
-                    body: "Die Trennsäule ist getauscht, die Anionen laufen wieder.",
-                    read: true, sentAt: now.addingTimeInterval(-3 * 86_400)),
         ]
 
         return LabData(
-            organizations: organizations, people: people, crs: crs, sites: sites, spots: spots,
-            matrices: matrices, collectionClasses: collectionClasses, classActions: classActions,
-            dimensions: dimensions, units: units, variables: variables, devices: devices, sops: sops,
-            actions: actions, actionVariables: actionVariables, collections: collections, values: values,
-            tasks: tasks, messages: messages)
+            organizations: organizations, people: people, crs: crs, sites: sites, spots: spots, matrices: matrices,
+            collectionClasses: collectionClasses, dimensions: dimensions, units: units, parameters: parameters,
+            devices: devices, documents: documents, actions: actions, effects: effects, thresholds: thresholds,
+            coefficients: coefficients, collections: collections, values: values, rawValues: rawValues, tasks: tasks,
+            messages: messages, samplingTimeParameterID: samplingTime)
     }
 
-    /// A plausible reading for a variable at a spot. `progress` runs from 0 (oldest) to 1 (now).
-    private static func mockReading(_ av: ActionVariable, collection: LabCollection, progress: Double,
+    /// A plausible reading of a parameter at a spot. `progress` runs from 0 (oldest) to 1 (now).
+    private static func mockReading(_ parameterID: Int, spotID spot: Int?, progress: Double,
                                     rng: inout SeededGenerator) -> Reading {
-        let spot = collection.spotID
-        let matrix = collection.matrixID
-        let value: Double
-        switch av.id {
-        case 1: value = matrix == 11 ? rng.normal(11.5, 0.5) : matrix == 9 ? rng.normal(17, 2) : rng.normal(12, 1.2)
-        case 2: return .text(rng.chance(0.93) ? "farblos" : "schwach gelblich")
-        case 3: return .boolean(rng.chance(0.04))
-        case 4: value = matrix == 11 ? rng.normal(7.15, 0.1) : rng.normal(7.6, 0.08)
-        case 5: value = spot == 10 ? rng.normal(900, 50) : matrix == 11 ? rng.normal(820, 40) : rng.normal(640, 15)
-        case 6:
-            switch spot {
-            case 10: value = 38 + 18 * progress + rng.normal(0, 2)
-            case 8: value = rng.normal(21, 1.5)
-            case 9: value = rng.normal(17, 1.5)
-            case nil: value = rng.normal(30, 3)
-            default: value = rng.normal(15, 1.2)
-            }
-        case 7: value = spot == 10 ? rng.normal(70, 6) : rng.normal(45, 4)
-        case 8: value = rng.normal(62, 5)
-        case 9: value = spot == 4 ? (progress > 0.8 ? rng.normal(12.5, 1) : rng.normal(7.5, 2.8)) : rng.normal(0.8, 0.3)
-        case 10: value = spot == 4 ? rng.normal(0.45, 0.12) : rng.normal(0.05, 0.02)
-        case 11: value = rng.normal(2.5, 0.8)
-        case 12: value = rng.chance(0.03) ? Double(Int.random(in: 1...3, using: &rng)) : 0
-        case 13: value = rng.chance(0.06) ? Double(Int.random(in: 1...6, using: &rng)) : 0
-        case 14: value = spot == 11 ? rng.normal(31, 11) : spot == 3 ? rng.normal(19, 6) : rng.normal(21, 7)
-        case 15: value = spot == 11 ? rng.normal(19, 6) : rng.normal(12, 4)
-        case 16: value = spot == 11 ? rng.normal(36, 7) : spot == 3 ? rng.normal(18, 5) : rng.normal(21, 5)
-        default: value = 0
+        let ground = spot == 8 || spot == 9 || spot == 10 || spot == nil
+        let value: Double, decimals: Double
+        switch parameterID {
+        case 2: (value, decimals) = (rng.normal(ground ? 11.5 : 14, 1), 1)
+        case 3: return .text(rng.chance(0.93) ? "farblos" : "schwach gelblich")
+        case 4: return .boolean(rng.chance(0.04))
+        case 5: (value, decimals) = (rng.normal(ground ? 7.15 : 7.6, 0.08), 2)
+        case 6: (value, decimals) = (rng.normal(spot == 10 ? 880 : 650, 30), 0)
+        case 7: (value, decimals) = (spot == 10 ? 38 + 18 * progress + rng.normal(0, 2) : rng.normal(ground ? 20 : 15, 1.5), 1)
+        case 8: (value, decimals) = (rng.normal(45, 4), 1)
+        case 9: (value, decimals) = (rng.normal(62, 5), 1)
+        case 10: (value, decimals) = (spot == 4 ? (progress > 0.8 ? rng.normal(12.5, 1) : rng.normal(7.5, 2.8)) : rng.normal(0.8, 0.3), 1)
+        case 11: (value, decimals) = (spot == 4 ? rng.normal(0.45, 0.12) : rng.normal(0.05, 0.02), 2)
+        case 12: (value, decimals) = (rng.normal(2.5, 0.8), 1)
+        case 13: (value, decimals) = (rng.chance(0.03) ? Double(Int.random(in: 1...3, using: &rng)) : 0, 0)
+        case 14: (value, decimals) = (rng.chance(0.06) ? Double(Int.random(in: 1...6, using: &rng)) : 0, 0)
+        case 15: (value, decimals) = (spot == 11 ? rng.normal(31, 11) : spot == 3 ? rng.normal(19, 6) : rng.normal(21, 7), 0)
+        case 16: (value, decimals) = (spot == 11 ? rng.normal(19, 6) : rng.normal(12, 4), 0)
+        default: (value, decimals) = (spot == 11 ? rng.normal(36, 7) : spot == 3 ? rng.normal(18, 5) : rng.normal(21, 5), 0)
         }
-        let scale = pow(10, Double(av.decimals))
-        return .decimal((max(value, av.decimals == 0 ? 0 : 0.1) * scale).rounded() / scale)
+        let scale = pow(10, decimals)
+        return .decimal((max(value, decimals == 0 ? 0 : 0.1) * scale).rounded() / scale)
     }
 }

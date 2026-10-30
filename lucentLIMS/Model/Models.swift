@@ -1,9 +1,8 @@
 import Foundation
 import CoreLocation
 
-// The types follow the tables of lucentBASE. Where a name would clash with Foundation or
-// SwiftUI (Collection, Unit, Dimension, Link, …) it gets a prefix. Fields that lucentBASE
-// doesn't have yet are marked "not in lucentBASE".
+// The types follow lucentBASE (github.com/BooneyNoobington/lucentBase). Where a name would
+// clash with Foundation or SwiftUI (Collection, Unit, Dimension, Link, …) it gets a prefix.
 
 // MARK: - People and organizations
 
@@ -17,7 +16,7 @@ struct Person: Identifiable, Hashable, Sendable {
     let id: Int
     var givenName: String
     var surname: String
-    var unixAccount: String
+    var linuxUser: String
     var organizationID: Int?
     /// From `j_person_organization.position`.
     var position: String?
@@ -100,12 +99,6 @@ struct Matrix: Identifiable, Hashable, Sendable {
     var description: String
 }
 
-struct CollectionClass: Identifiable, Hashable, Sendable {
-    let id: Int
-    var name: String
-    var description: String
-}
-
 struct PhysicalDimension: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
@@ -126,29 +119,32 @@ enum ValueClass: String, CaseIterable, Hashable, Sendable {
     case decimal, text, boolean, datetime
 }
 
-struct Variable: Identifiable, Hashable, Sendable {
+/// Something an action yields: a measured quantity, but also e.g. "was the sample filtered?".
+struct Parameter: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
-    var valueClass: ValueClass
     var description: String
-    var dimensionID: Int?
+    var unitID: Int?
+    var valueClass: ValueClass
 }
 
-// MARK: - Methods, devices, SOPs
+// MARK: - Actions, devices, documents
 
 struct Device: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
-    var number: String
+    var number: Int
+    /// An organization.
     var manufacturerID: Int?
+    /// An organization, as in lucentBASE.
     var operatorID: Int?
     var active: Bool
     /// lucentAPI's version tag, sent back when changing the device.
     var etag: String? = nil
 }
 
-/// A document of an SOP (`link`), either a URL or a file path.
-struct SOPDocument: Identifiable, Hashable, Sendable {
+/// A link: an SOP, a standard, a regulation, any file or web page.
+struct Document: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
     var url: URL?
@@ -157,73 +153,81 @@ struct SOPDocument: Identifiable, Hashable, Sendable {
     var sha256: String
 }
 
+/// A person's part in an action (`j_action_person`): auditor, manager or worker.
 struct Assignment: Hashable, Sendable {
     var personID: Int
     var role: String
 }
 
-struct SOP: Identifiable, Hashable, Sendable {
-    let id: Int
-    var name: String
-    var active: Bool
-    var documents: [SOPDocument]
-    var people: [Assignment]
+/// The action depends on another one (`j_action_action`).
+struct Dependency: Hashable, Sendable {
+    enum Kind: String, Hashable, Sendable { case strict, possibility }
+    var actionID: Int
+    var kind: Kind
+    var description: String
 }
 
-/// An analytical method or procedure (`action`).
+/// Something done to a collection: sampling, a measurement, a check (`action`).
 struct LabAction: Identifiable, Hashable, Sendable {
     let id: Int
     var name: String
-    var standard: String
-    var iteration: Int
+    /// The version of the action, as a point in time.
+    var iteration: Date
     var active: Bool
     var description: String
-    var sopID: Int?
+    var documentIDs: [Int]
     var deviceIDs: [Int]
     var people: [Assignment]
-    /// Actions that have to be done before this one (`j_action_dependency`).
-    var dependsOn: [Int]
-    /// Actions that this one entails (`j_action_implication`).
-    var implies: [Int]
+    var dependencies: [Dependency]
 }
 
 enum UncertaintyClass: String, Hashable, Sendable {
     case absolute, relative
 }
 
-/// A variable that an action measures, with unit and uncertainty (`j_action_variable`).
-struct ActionVariable: Identifiable, Hashable, Sendable {
+/// What an action yields: one parameter, with method-specific uncertainty (`effect`).
+struct Effect: Identifiable, Hashable, Sendable {
     let id: Int
     var actionID: Int
-    var variableID: Int
-    var unitID: Int?
+    var parameterID: Int
     var uncertainty: Double?
     var uncertaintyClass: UncertaintyClass
     var calculation: String?
-    /// Display precision. Not in lucentBASE.
-    var decimals: Int = 1
-    /// Limits for the value. Not in lucentBASE. A boolean counts as 0 or 1.
-    var lowerLimit: Double? = nil
-    var upperLimit: Double? = nil
+    /// The unit of an absolute uncertainty, if not the parameter's.
+    var uncertaintyUnitID: Int? = nil
+}
 
-    func exceeds(_ reading: Reading) -> Bool {
-        guard let number = reading.number else { return false }
-        if let lowerLimit, number < lowerLimit { return true }
-        if let upperLimit, number > upperLimit { return true }
-        return false
+/// Limits of a parameter in the context of a document, in the parameter's unit (`threshold`).
+struct Threshold: Identifiable, Hashable, Sendable {
+    let id: Int
+    var parameterID: Int
+    var documentID: Int
+    var lowerLimit: Double?
+    var upperLimit: Double?
+    var description: String
+
+    func excludes(_ number: Double) -> Bool {
+        (lowerLimit.map { number < $0 } ?? false) || (upperLimit.map { number > $0 } ?? false)
     }
 
-    var limitDescription: String? {
+    var rangeDescription: String {
         switch (lowerLimit, upperLimit) {
         case let (low?, high?): "\(low.formatted()) – \(high.formatted())"
         case let (nil, high?): "≤ \(high.formatted())"
         case let (low?, nil): "≥ \(low.formatted())"
-        case (nil, nil): nil
+        case (nil, nil): ""
         }
     }
 }
 
-// MARK: - Collections and values
+/// Two effects that belong together (`coefficient`).
+struct Coefficient: Identifiable, Hashable, Sendable {
+    let id: Int
+    var effectIDs: [Int]
+    var description: String
+}
+
+// MARK: - Collections, values, raw values
 
 /// A sample or a series of samples (`collection`).
 struct LabCollection: Identifiable, Hashable, Sendable {
@@ -231,15 +235,16 @@ struct LabCollection: Identifiable, Hashable, Sendable {
     /// The readable identifier from the numbering scheme.
     var name: String
     var matrixID: Int
-    var classID: Int
+    /// One of lucentBASE's collection classes, e.g. "spot sample".
+    var collectionClass: String
     var spotID: Int?
     var siteID: Int?
-    /// Not in lucentBASE.
+    /// The sampling-time raw value, else when it was registered.
     var sampledAt: Date
-    /// Not in lucentBASE.
     var sampledByID: Int?
 }
 
+/// What a raw value holds.
 enum Reading: Hashable, Sendable {
     case decimal(Double)
     case text(String)
@@ -255,22 +260,27 @@ enum Reading: Hashable, Sendable {
     }
 }
 
-/// A result (`value`). Its raw values (`raw_value`) aren't modelled yet.
+/// A collection's slot for one effect (`value`). Its readings are raw values.
 struct LabValue: Identifiable, Hashable, Sendable {
     let id: Int
     var collectionID: Int
-    var actionVariableID: Int
-    var repetition: Int
-    var reading: Reading
-    var accepted: Bool
-    /// When, by whom and with what it was measured, from lucentBASE's raw values.
-    var measuredAt: Date?
+    var effectID: Int
+}
+
+/// A reading of a value (`raw_value`). Further readings of the same value are repetitions.
+struct RawValue: Identifiable, Hashable, Sendable {
+    let id: Int
+    var valueID: Int
+    var t: Date?
     var personID: Int?
     var deviceID: Int?
+    var unitID: Int?
+    var reading: Reading?
+    var accepted: Bool
     var etag: String? = nil
 }
 
-/// Derived from the values of a collection against what its class plans.
+/// Derived from a collection's values and raw values.
 enum CollectionStatus: Int, CaseIterable, Comparable, Identifiable, Sendable {
     case registered, inAnalysis, inReview, approved
 
@@ -287,7 +297,6 @@ struct LabTask: Identifiable, Hashable, Sendable {
     var assignerID: Int?
     var assigneeID: Int?
     var deadline: Date
-    /// Not in lucentBASE.
     var done: Bool
     var etag: String? = nil
 }
@@ -299,7 +308,7 @@ struct Message: Identifiable, Hashable, Sendable {
     var subject: String
     var body: String
     var read: Bool
-    /// Not in lucentBASE.
+    /// From lucentBASE's log.
     var sentAt: Date
 }
 
@@ -312,18 +321,21 @@ struct LabData: Sendable {
     var sites: [Site]
     var spots: [Spot]
     var matrices: [Matrix]
-    var collectionClasses: [CollectionClass]
-    /// Which actions a collection class plans (`j_action_collection_class`).
-    var classActions: [Int: [Int]]
+    var collectionClasses: [String]
     var dimensions: [PhysicalDimension]
     var units: [LabUnit]
-    var variables: [Variable]
+    var parameters: [Parameter]
     var devices: [Device]
-    var sops: [SOP]
+    var documents: [Document]
     var actions: [LabAction]
-    var actionVariables: [ActionVariable]
+    var effects: [Effect]
+    var thresholds: [Threshold]
+    var coefficients: [Coefficient]
     var collections: [LabCollection]
     var values: [LabValue]
+    var rawValues: [RawValue]
     var tasks: [LabTask]
     var messages: [Message]
+    /// The parameter whose datetime raw value is a collection's sampling time.
+    var samplingTimeParameterID: Int?
 }

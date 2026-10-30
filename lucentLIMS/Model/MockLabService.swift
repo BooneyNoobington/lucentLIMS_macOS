@@ -1,7 +1,8 @@
 import Foundation
 
 /// The demo data in memory. It follows the same rules as lucentAPI: the next identifier from
-/// the numbering scheme, repetitions, and nobody accepts what they measured themselves.
+/// the numbering scheme, a value for every effect of the planned actions, repetitions, and
+/// nobody accepts what they measured themselves.
 actor MockLabService: LabService {
     private var data: LabData
     private let currentUserID: Int
@@ -9,12 +10,12 @@ actor MockLabService: LabService {
 
     init(data: LabData, userName: String) {
         self.data = data
-        currentUserID = (data.people.first { $0.unixAccount == userName } ?? data.people[0]).id
+        currentUserID = Self.snapshot(of: data, userName: userName).currentUserID
     }
 
     /// The snapshot without awaiting the actor, for building a store synchronously.
     nonisolated static func snapshot(of data: LabData, userName: String) -> LabSnapshot {
-        let user = data.people.first { $0.unixAccount == userName } ?? data.people[0]
+        let user = data.people.first { $0.linuxUser == userName } ?? data.people[0]
         return LabSnapshot(data: data, currentUserID: user.id, roles: Set(LabRole.allCases))
     }
 
@@ -22,42 +23,57 @@ actor MockLabService: LabService {
         LabSnapshot(data: data, currentUserID: currentUserID, roles: Set(LabRole.allCases))
     }
 
-    func register(_ new: NewCollection) -> LabCollection {
+    func register(_ new: NewCollection) throws -> Registration {
         let last = data.collections.compactMap { numbering.sequence(of: $0.name) }.max()
         let collection = LabCollection(
             id: (data.collections.map(\.id).max() ?? 0) + 1,
             name: numbering.identifier(for: last.map { $0 + 1 } ?? 0) ?? "¯\\_(ツ)_/¯",
-            matrixID: new.matrixID, classID: new.classID, spotID: new.spotID, siteID: new.siteID,
-            sampledAt: new.sampledAt, sampledByID: new.sampledByID)
+            matrixID: new.matrixID, collectionClass: new.collectionClass, spotID: new.spotID, siteID: new.siteID,
+            sampledAt: new.sampledAt ?? .now, sampledByID: currentUserID)
+        var values: [LabValue] = []
+        for effect in data.effects where new.actionIDs.contains(effect.actionID) {
+            values.append(LabValue(id: (data.values.map(\.id).max() ?? 0) + values.count + 1,
+                                   collectionID: collection.id, effectID: effect.id))
+        }
+        var rawValues: [RawValue] = []
+        if let sampledAt = new.sampledAt {
+            guard let slot = values.first(where: { value in
+                data.effects.first { $0.id == value.effectID }?.parameterID == data.samplingTimeParameterID
+            }) else { throw LabServiceError.samplingTimeNotPlanned }
+            rawValues.append(RawValue(id: (data.rawValues.map(\.id).max() ?? 0) + 1, valueID: slot.id, t: sampledAt,
+                                      personID: currentUserID, reading: .datetime(sampledAt), accepted: false))
+        }
         data.collections.append(collection)
-        return collection
+        data.values += values
+        data.rawValues += rawValues
+        return Registration(collection: collection, values: values, rawValues: rawValues)
     }
 
-    func record(_ reading: Reading, for actionVariable: ActionVariable, in collectionID: Int) -> LabValue {
-        let action = data.actions.first { $0.id == actionVariable.actionID }
-        let deviceID = action?.deviceIDs.first { id in data.devices.first { $0.id == id }?.active == true }
-        let repetition = (data.values
-            .filter { $0.collectionID == collectionID && $0.actionVariableID == actionVariable.id }
-            .map(\.repetition).max() ?? 0) + 1
-        let value = LabValue(id: (data.values.map(\.id).max() ?? 0) + 1, collectionID: collectionID,
-                             actionVariableID: actionVariable.id, repetition: repetition, reading: reading,
-                             accepted: false, measuredAt: .now, personID: currentUserID, deviceID: deviceID)
-        data.values.append(value)
-        return value
+    func record(_ reading: Reading, for value: LabValue) -> RawValue {
+        let effect = data.effects.first { $0.id == value.effectID }
+        let action = data.actions.first { $0.id == effect?.actionID }
+        let parameter = data.parameters.first { $0.id == effect?.parameterID }
+        let raw = RawValue(
+            id: (data.rawValues.map(\.id).max() ?? 0) + 1, valueID: value.id, t: .now, personID: currentUserID,
+            deviceID: action?.deviceIDs.first { id in data.devices.first { $0.id == id }?.active == true },
+            unitID: parameter?.unitID, reading: reading, accepted: false)
+        data.rawValues.append(raw)
+        return raw
     }
 
-    func setAccepted(_ accepted: Bool, value: LabValue) throws -> LabValue {
-        guard let index = data.values.firstIndex(where: { $0.id == value.id }) else { return value }
-        if accepted && data.values[index].personID == currentUserID { throw LabServiceError.fourEyes }
-        data.values[index].accepted = accepted
-        return data.values[index]
+    func setAccepted(_ accepted: Bool, rawValue: RawValue) throws -> RawValue {
+        guard let index = data.rawValues.firstIndex(where: { $0.id == rawValue.id }) else { return rawValue }
+        if accepted && data.rawValues[index].personID == currentUserID { throw LabServiceError.fourEyes }
+        data.rawValues[index].accepted = accepted
+        return data.rawValues[index]
     }
 
-    func acceptAll(in collectionID: Int) throws -> [LabValue] {
-        let open = data.values.indices.filter { data.values[$0].collectionID == collectionID && !data.values[$0].accepted }
-        if open.contains(where: { data.values[$0].personID == currentUserID }) { throw LabServiceError.fourEyes }
-        for index in open { data.values[index].accepted = true }
-        return data.values.filter { $0.collectionID == collectionID }
+    func acceptAll(in collectionID: Int) throws -> [RawValue] {
+        let valueIDs = Set(data.values.filter { $0.collectionID == collectionID }.map(\.id))
+        let open = data.rawValues.indices.filter { valueIDs.contains(data.rawValues[$0].valueID) && !data.rawValues[$0].accepted }
+        if open.contains(where: { data.rawValues[$0].personID == currentUserID }) { throw LabServiceError.fourEyes }
+        for index in open { data.rawValues[index].accepted = true }
+        return data.rawValues.filter { valueIDs.contains($0.valueID) }
     }
 
     func setDone(_ done: Bool, task: LabTask) -> LabTask {

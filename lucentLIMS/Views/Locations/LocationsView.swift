@@ -142,11 +142,11 @@ private struct LocationDetailView: View {
     @Environment(LabStore.self) private var store
     @Environment(AppNavigation.self) private var navigation
     let location: LocationRef
-    @State private var variableID: Int?
+    @State private var parameterID: Int?
 
     var body: some View {
         let collections = store.collections(at: location)
-        let variables = store.measuredVariables(at: location)
+        let parameters = store.measuredParameters(at: location)
 
         Form {
             Section {
@@ -161,14 +161,12 @@ private struct LocationDetailView: View {
                 .padding(.vertical, 2)
             }
 
-            if let actionVariable = variables.first(where: { $0.id == variableID }) ?? mostExceeded(variables) {
+            if let parameter = parameters.first(where: { $0.id == parameterID }) ?? mostExceeded(parameters) {
                 Section("Time series") {
-                    Picker("Variable", selection: Binding(get: { actionVariable.id }, set: { variableID = $0 })) {
-                        ForEach(variables) { av in
-                            Text(store.variable(av.variableID)?.name ?? "—").tag(av.id)
-                        }
+                    Picker("Parameter", selection: Binding(get: { parameter.id }, set: { parameterID = $0 })) {
+                        ForEach(parameters) { Text($0.name).tag($0.id) }
                     }
-                    SeriesChart(points: store.series(at: location, for: actionVariable), actionVariable: actionVariable)
+                    SeriesChart(points: store.series(at: location, for: parameter), parameter: parameter)
                         .padding(.vertical, 6)
                 }
             }
@@ -196,10 +194,12 @@ private struct LocationDetailView: View {
         .formStyle(.grouped)
     }
 
-    /// The chart opens on the variable that exceeded its limit most often here.
-    private func mostExceeded(_ variables: [ActionVariable]) -> ActionVariable? {
-        let counts = variables.map { av in (av, store.series(at: location, for: av).filter(\.exceeded).count) }
-        guard let top = counts.max(by: { $0.1 < $1.1 }), top.1 > 0 else { return variables.first }
+    /// The chart opens on the parameter that exceeded its limits most often here.
+    private func mostExceeded(_ parameters: [Parameter]) -> Parameter? {
+        let counts = parameters.map { parameter in
+            (parameter, store.series(at: location, for: parameter).filter(\.exceeded).count)
+        }
+        guard let top = counts.max(by: { $0.1 < $1.1 }), top.1 > 0 else { return parameters.first }
         return top.0
     }
 
@@ -256,11 +256,11 @@ private struct LocationDetailView: View {
     }
 }
 
-/// A variable over time with its limit; hover or drag to read single values.
+/// A parameter over time with its limits; hover or drag to read single values.
 struct SeriesChart: View {
     @Environment(LabStore.self) private var store
     let points: [SeriesPoint]
-    let actionVariable: ActionVariable
+    let parameter: Parameter
     @State private var selectedDate: Date?
 
     private var selected: SeriesPoint? {
@@ -268,9 +268,21 @@ struct SeriesChart: View {
         return points.min { abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate)) }
     }
 
+    /// Each limit once, with the documents that set it.
+    private var limits: [(value: Double, documents: String)] {
+        let thresholds = Set(points.flatMap(\.limits))
+        let byValue = Dictionary(grouping: thresholds.flatMap { threshold in
+            [threshold.lowerLimit, threshold.upperLimit].compactMap { $0 }.map { ($0, threshold.documentID) }
+        }, by: \.0)
+        return byValue.map { value, pairs in
+            (value, Set(pairs.map(\.1)).sorted().compactMap { store.document($0)?.shortName }.joined(separator: ", "))
+        }
+        .sorted { $0.value < $1.value }
+    }
+
     var body: some View {
-        let unit = store.unit(actionVariable.unitID)?.symbol ?? ""
-        let name = store.variable(actionVariable.variableID)?.name ?? ""
+        let unit = store.unit(parameter.unitID)?.symbol ?? ""
+        let name = parameter.name
 
         Chart {
             ForEach(points) { point in
@@ -281,12 +293,12 @@ struct SeriesChart: View {
                     .foregroundStyle(point.exceeded ? Color.red : Color.accentColor)
                     .symbolSize(point.exceeded ? 60 : 25)
             }
-            ForEach([actionVariable.lowerLimit, actionVariable.upperLimit].compactMap { $0 }, id: \.self) { limit in
-                RuleMark(y: .value("Limit", limit))
+            ForEach(limits, id: \.value) { limit in
+                RuleMark(y: .value("Limit", limit.value))
                     .foregroundStyle(.red.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 4]))
                     .annotation(position: .top, alignment: .leading) {
-                        Text("Limit \(limit.formatted()) \(unit)")
+                        Text("Limit \(limit.value.formatted()) \(unit) · \(limit.documents)")
                             .font(.caption2)
                             .foregroundStyle(.red)
                     }
@@ -297,7 +309,7 @@ struct SeriesChart: View {
                     .annotation(position: .top, spacing: 4,
                                 overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(store.format(.decimal(selected.value), actionVariable))
+                            Text(store.format(.decimal(selected.value), unitID: parameter.unitID))
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(selected.exceeded ? .red : .primary)
                             Text(selected.date, format: .dateTime.day().month().year())
