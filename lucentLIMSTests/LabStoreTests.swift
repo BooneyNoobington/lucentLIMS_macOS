@@ -173,6 +173,51 @@ struct LabStoreTests {
         await #expect(throws: LabServiceError.self) { try await store.create(spot) }
     }
 
+    @Test func editingASpot() async throws {
+        let store = makeStore()
+        let gwm = try #require(store.spots.first { $0.name == "GWM 12" })
+        #expect(gwm.siteID == 3)
+        var draft = LocationDraft(editing: gwm)
+        #expect(draft.editing == .spot(gwm.id) && draft.problem == nil)
+        draft.name = "GWM 12a"
+        draft.point = GeoPoint(latitude: 49.0320, longitude: 8.3050)
+        draft.siteID = nil
+        #expect(try await store.save(draft) == .spot(gwm.id))
+        let moved = try #require(store.spot(gwm.id))
+        #expect(moved.name == "GWM 12a" && moved.point == draft.point && moved.siteID == nil)
+        #expect(store.spots.count == makeStore().spots.count)  // changed, not added
+
+        draft.name = "Garten"  // another spot's name
+        await #expect(throws: LabServiceError.self) { try await store.save(draft) }
+    }
+
+    @Test func redrawingASite() async throws {
+        let store = makeStore()
+        let site = try #require(store.site(2))
+        var draft = LocationDraft(editing: site)
+        draft.border.remove(at: 3)
+        draft.description = "Nur noch drei Ecken"
+        try await store.save(draft)
+        #expect(store.site(2)?.border.count == 3 && store.site(2)?.description == "Nur noch drei Ecken")
+        #expect(store.sites.count == makeStore().sites.count)
+    }
+
+    @Test func aClickNearAnEdgeAddsACornerThere() {
+        let square = [GeoPoint(latitude: 1, longitude: 0), GeoPoint(latitude: 1, longitude: 1),
+                      GeoPoint(latitude: 0, longitude: 1), GeoPoint(latitude: 0, longitude: 0)]
+        var editing = LocationDraft(kind: .site, border: square)
+        editing.editing = .site(1)
+        editing.addCorner(GeoPoint(latitude: 0.5, longitude: 1.1))  // beside the right edge, corners 2 and 3
+        #expect(editing.border.firstIndex(of: GeoPoint(latitude: 0.5, longitude: 1.1)) == 2)
+        editing.addCorner(GeoPoint(latitude: 0.6, longitude: -0.1))  // beside the left edge, from the last corner to the first
+        #expect(editing.border.last == GeoPoint(latitude: 0.6, longitude: -0.1))
+        #expect(!Border.crossesItself(editing.border))
+
+        var drawing = LocationDraft(kind: .site, border: square)  // a new drawing just goes on
+        drawing.addCorner(GeoPoint(latitude: 0.5, longitude: 1.1))
+        #expect(drawing.border.last == GeoPoint(latitude: 0.5, longitude: 1.1))
+    }
+
     @Test func aBorderMustNotCrossItself() {
         let bowtie = [Self.harbour[0], Self.harbour[2], Self.harbour[1], Self.harbour[3]]
         #expect(Border.crossesItself(bowtie) && !Border.crossesItself(Self.harbour))

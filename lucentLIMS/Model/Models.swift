@@ -84,6 +84,8 @@ struct Site: Identifiable, Hashable, Sendable {
     var address: Address?
     var border: [GeoPoint]
     var crsID: Int?
+    /// lucentAPI's version tag, sent back when changing the site.
+    var etag: String? = nil
 
     var center: GeoPoint {
         let n = Double(max(border.count, 1))
@@ -103,6 +105,8 @@ struct Spot: Identifiable, Hashable, Sendable {
     var y: Double?
     var crsID: Int?
     var siteID: Int?
+    /// lucentAPI's version tag, sent back when changing the spot.
+    var etag: String? = nil
 
     var point: GeoPoint? {
         guard let x, let y else { return nil }

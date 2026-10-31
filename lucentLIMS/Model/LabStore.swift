@@ -414,6 +414,27 @@ final class LabStore {
         }
     }
 
+    /// Saves a drawing: adds the spot or site, or changes the one it edits. Returns where it is.
+    @discardableResult
+    func save(_ draft: LocationDraft) async throws -> LocationRef {
+        switch draft.editing {
+        case nil:
+            return try await create(draft)
+        case .spot(let id):
+            guard let spot = spot(id) else { return .spot(id) }
+            let changed = try await service.updateSpot(spot, to: draft)
+            spots[spots.firstIndex { $0.id == id }!] = changed
+            spotsByID[id] = changed
+            return .spot(id)
+        case .site(let id):
+            guard let site = site(id) else { return .site(id) }
+            let changed = try await service.updateSite(site, to: draft)
+            sites[sites.firstIndex { $0.id == id }!] = changed
+            sitesByID[id] = changed
+            return .site(id)
+        }
+    }
+
     /// The site a point lies in, if any.
     func site(containing point: GeoPoint) -> Site? {
         sites.first { $0.contains(point) }

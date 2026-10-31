@@ -128,6 +128,10 @@ extension AppNavigation {
             locationDraft = LocationDraft(kind: .site, name: "Rheinhafen", border: [
                 GeoPoint(latitude: 49.0160, longitude: 8.3250), GeoPoint(latitude: 49.0163, longitude: 8.3322),
                 GeoPoint(latitude: 49.0118, longitude: 8.3330), GeoPoint(latitude: 49.0121, longitude: 8.3262)])
+        } else if defaults.integer(forKey: "editSite") > 0 {
+            // Filled in by LocationsView, which has the store.
+            locationDraft = LocationDraft(kind: .site)
+            locationDraft?.editing = .site(defaults.integer(forKey: "editSite"))
         } else if defaults.bool(forKey: "newSpot") {
             locationDraft = LocationDraft(kind: .spot, name: "Pegel Rheinhafen",
                                           point: GeoPoint(latitude: 49.0141, longitude: 8.3290))

@@ -140,6 +140,29 @@ struct APILabService: LabService {
             border: draft.border.map { LucentAPI.GeoPoint(latitude: $0.latitude, longitude: $0.longitude) })))
     }
 
+    /// Sends only what differs from `spot`.
+    func updateSpot(_ spot: Spot, to draft: LocationDraft) async throws -> Spot {
+        let name = draft.name.trimmingCharacters(in: .whitespaces)
+        let moved = draft.point != spot.point
+        let change = LucentAPI.SpotChange(
+            name: name == spot.name ? nil : name,
+            description: draft.description == spot.description ? nil : draft.description,
+            x: moved ? draft.point?.latitude : nil, y: moved ? draft.point?.longitude : nil,
+            siteId: draft.siteID == spot.siteID ? nil : .some(draft.siteID))
+        return Spot(try await client.updateSpot(id: spot.id, etag: spot.etag ?? "*", change))
+    }
+
+    /// Sends only what differs from `site`; a changed border is sent whole.
+    func updateSite(_ site: Site, to draft: LocationDraft) async throws -> Site {
+        let name = draft.name.trimmingCharacters(in: .whitespaces)
+        let change = LucentAPI.SiteChange(
+            name: name == site.name ? nil : name,
+            description: draft.description == site.description ? nil : draft.description,
+            border: draft.border == site.border ? nil
+                : draft.border.map { LucentAPI.GeoPoint(latitude: $0.latitude, longitude: $0.longitude) })
+        return Site(try await client.updateSite(id: site.id, etag: site.etag ?? "*", change))
+    }
+
     func setDone(_ done: Bool, task: LabTask) async throws -> LabTask {
         LabTask(try await client.updateTask(id: task.id, etag: task.etag ?? "*", .init(done: done)))
     }
@@ -194,14 +217,14 @@ extension Site {
                               city: $0.city ?? "")
                   },
                   border: s.border.map { GeoPoint(latitude: $0.latitude, longitude: $0.longitude) },
-                  crsID: s.crsId)
+                  crsID: s.crsId, etag: s.etag)
     }
 }
 
 extension Spot {
     init(_ s: LucentAPI.Spot) {
         self.init(id: s.id, name: s.name, description: s.description ?? "", x: s.x, y: s.y, crsID: s.crsId,
-                  siteID: s.siteId)
+                  siteID: s.siteId, etag: s.etag)
     }
 }
 

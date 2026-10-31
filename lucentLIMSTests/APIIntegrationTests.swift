@@ -118,6 +118,18 @@ struct APIIntegrationTests {
         guard case .spot(let spotID) = spotRef else { Issue.record("not a spot"); return }
         #expect(sampler.spot(spotID)?.siteID == siteID)
 
+        // Moved out of the site and renamed; the border redrawn with three corners.
+        var spotDraft = LocationDraft(editing: try #require(sampler.spot(spotID)))
+        spotDraft.name = "Pegel \(suffix) neu"
+        spotDraft.point = GeoPoint(latitude: 49.02, longitude: 8.33)
+        spotDraft.siteID = nil
+        try await sampler.save(spotDraft)
+        #expect(sampler.spot(spotID)?.name == "Pegel \(suffix) neu" && sampler.spot(spotID)?.siteID == nil)
+        var siteDraft = LocationDraft(editing: try #require(sampler.site(siteID)))
+        siteDraft.border.removeLast()
+        try await sampler.save(siteDraft)
+        #expect(sampler.site(siteID)?.border.count == 3)
+
         // lucentAPI refuses a border that crosses itself, too.
         let bowtie = [border[0], border[2], border[1], border[3]]
         #expect(await status { _ = try await sampler.service.createSite(

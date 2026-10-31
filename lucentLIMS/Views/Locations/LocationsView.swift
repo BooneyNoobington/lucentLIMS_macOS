@@ -29,7 +29,7 @@ struct LocationsView: View {
 
         MapReader { proxy in
             Map(position: $position, selection: draft == nil ? $navigation.locationSelection : .constant(nil)) {
-                ForEach(store.sites) { site in
+                ForEach(store.sites.filter { draft?.editing != .site($0.id) }) { site in
                     MapPolygon(coordinates: site.border.map(\.coordinate))
                         .foregroundStyle(Color.accentColor.opacity(navigation.locationSelection == .site(site.id) ? 0.35 : 0.15))
                         .stroke(Color.accentColor, lineWidth: 2)
@@ -37,13 +37,19 @@ struct LocationsView: View {
                         .tint(Color.accentColor)
                         .tag(LocationRef.site(site.id))
                 }
-                ForEach(store.spots.filter { $0.point != nil }) { spot in
+                ForEach(store.spots.filter { $0.point != nil && draft?.editing != .spot($0.id) }) { spot in
                     let matrix = store.primaryMatrix(at: .spot(spot.id))
                     Marker(spot.name, systemImage: matrix?.systemImage ?? "mappin", coordinate: spot.point!.coordinate)
                         .tint(matrix?.tint ?? .red)
                         .tag(LocationRef.spot(spot.id))
                 }
-                if let draft { DraftOnMap(draft: draft) }
+                if let draft {
+                    DraftOnMap(draft: draft, proxy: proxy) { index, point in
+                        navigation.locationDraft?.border[index] = point
+                    } remove: { index in
+                        navigation.locationDraft?.border.remove(at: index)
+                    }
+                }
             }
             .mapStyle(.standard(elevation: draft == nil ? .realistic : .flat, pointsOfInterest: .excludingAll))
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
@@ -73,7 +79,13 @@ struct LocationsView: View {
             if let point { navigation.locationDraft?.siteID = store.site(containing: point)?.id }
         }
         .onAppear {
-            if let draft { showDraft(draft) }
+            #if DEBUG
+            // -editSite <id> names the site only; its border comes from the store.
+            if case .site(let id) = draft?.editing, draft?.border.isEmpty == true, let site = store.site(id) {
+                navigation.locationDraft = LocationDraft(editing: site)
+            }
+            #endif
+            if let draft = navigation.locationDraft { showDraft(draft) }
         }
         .navigationTitle("Locations")
         .toolbar {
@@ -117,7 +129,7 @@ struct LocationsView: View {
     private func add(_ point: GeoPoint) {
         switch navigation.locationDraft?.kind {
         case .spot: navigation.locationDraft?.point = point
-        case .site: navigation.locationDraft?.border.append(point)
+        case .site: navigation.locationDraft?.addCorner(point)
         case nil: break
         }
     }
@@ -219,8 +231,14 @@ private struct LocationDetailView: View {
 
         Form {
             Section {
-                Button("All Locations", systemImage: "chevron.left") { navigation.locationSelection = nil }
-                    .buttonStyle(.borderless)
+                HStack {
+                    Button("All Locations", systemImage: "chevron.left") { navigation.locationSelection = nil }
+                    Spacer()
+                    Button("Edit", systemImage: "pencil") { edit() }
+                        .disabled(!store.can(.sampler))
+                        .help(store.can(.sampler) ? "Rename it, move it or redraw its border" : "Needs the sampler role")
+                }
+                .buttonStyle(.borderless)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.title2.weight(.semibold))
@@ -261,6 +279,13 @@ private struct LocationDetailView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func edit() {
+        switch location {
+        case .spot(let id): if let spot = store.spot(id) { navigation.locationDraft = LocationDraft(editing: spot) }
+        case .site(let id): if let site = store.site(id) { navigation.locationDraft = LocationDraft(editing: site) }
+        }
     }
 
     /// The chart opens on the parameter that exceeded its limits most often here.
@@ -407,6 +432,10 @@ struct SeriesChart: View {
 /// The spot or site being drawn, in the colour of work in progress.
 private struct DraftOnMap: MapContent {
     let draft: LocationDraft
+    let proxy: MapProxy
+    /// A corner dragged to a new place.
+    let move: (Int, GeoPoint) -> Void
+    let remove: (Int) -> Void
 
     var body: some MapContent {
         if draft.kind == .spot, let point = draft.point {
@@ -431,6 +460,18 @@ private struct DraftOnMap: MapContent {
                         .frame(width: 20, height: 20)
                         .background(Color.orange, in: Circle())
                         .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                        .padding(6)  // a larger target to grab
+                        .contentShape(Circle())
+                        .highPriorityGesture(DragGesture(coordinateSpace: .global).onChanged { drag in
+                            if let coordinate = proxy.convert(drag.location, from: .global) {
+                                move(index, GeoPoint(latitude: coordinate.latitude, longitude: coordinate.longitude))
+                            }
+                        })
+                        .contextMenu {
+                            Button("Remove Corner", systemImage: "minus.circle", role: .destructive) { remove(index) }
+                                .disabled(draft.border.count <= 3)
+                        }
+                        .help("Drag to move this corner")
                 }
                 .annotationTitles(.hidden)
             }
@@ -461,6 +502,8 @@ private struct DrawingHint: View {
         case .spot:
             return draft.point == nil ? String(localized: "\(action) the map where the spot is")
                 : String(localized: "\(action) again to move the spot")
+        case .site where draft.editing != nil && draft.border.count >= 3:
+            return String(localized: "Drag corners · \(action) an edge to add one")
         case .site:
             return draft.border.isEmpty ? String(localized: "\(action) the map at each corner of the site")
                 : String(localized: "\(action) the next corner · \(draft.border.count) so far")
@@ -501,7 +544,7 @@ private struct LocationEditor: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(kind == .spot ? "New Spot" : "New Site")
+                        Text(title(draft.wrappedValue))
                             .font(.title2.weight(.semibold))
                         Text(kind == .spot ? "A point where samples are taken." : "An area, drawn by its border.")
                             .foregroundStyle(.secondary)
@@ -541,9 +584,17 @@ private struct LocationEditor: View {
                     Section {
                         ForEach(Array(draft.wrappedValue.border.enumerated()), id: \.offset) { index, corner in
                             LabeledContent("Corner \(index + 1)") {
-                                Text(corner.latitude, format: .number.precision(.fractionLength(5)))
-                                    + Text(", ")
-                                    + Text(corner.longitude, format: .number.precision(.fractionLength(5)))
+                                HStack(spacing: 8) {
+                                    Text(corner.latitude, format: .number.precision(.fractionLength(5)))
+                                        + Text(", ")
+                                        + Text(corner.longitude, format: .number.precision(.fractionLength(5)))
+                                    Button("Remove Corner \(index + 1)", systemImage: "minus.circle") {
+                                        draft.wrappedValue.border.remove(at: index)
+                                    }
+                                    .labelStyle(.iconOnly)
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.red)
+                                }
                             }
                             .monospacedDigit()
                         }
@@ -560,7 +611,9 @@ private struct LocationEditor: View {
                     } header: {
                         Text("Border")
                     } footer: {
-                        Text("Place the corners in order around the area; the last one joins the first.")
+                        Text(draft.wrappedValue.editing == nil
+                             ? "Place the corners in order around the area; the last one joins the first."
+                             : "Drag corners on the map to move them; a click near an edge adds a corner there.")
                     }
                 }
 
@@ -576,7 +629,9 @@ private struct LocationEditor: View {
                 HStack {
                     Button("Cancel") { navigation.locationDraft = nil }
                     Spacer()
-                    Button(kind == .spot ? "Add Spot" : "Add Site") { save(draft.wrappedValue) }
+                    Button(draft.wrappedValue.editing != nil ? "Save" : kind == .spot ? "Add Spot" : "Add Site") {
+                        save(draft.wrappedValue)
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(saving || draft.wrappedValue.problem != nil || !store.can(.sampler))
                 }
@@ -586,6 +641,15 @@ private struct LocationEditor: View {
         }
         .onChange(of: navigation.locationDraft) { _, current in
             if let current { lastDraft = current }
+        }
+    }
+
+    private func title(_ draft: LocationDraft) -> String {
+        switch (draft.kind, draft.editing) {
+        case (.spot, nil): String(localized: "New Spot")
+        case (.site, nil): String(localized: "New Site")
+        case (.spot, _): String(localized: "Edit Spot")
+        case (.site, _): String(localized: "Edit Site")
         }
     }
 
@@ -610,7 +674,7 @@ private struct LocationEditor: View {
         saving = true
         Task {
             do {
-                let location = try await store.create(draft)
+                let location = try await store.save(draft)
                 navigation.locationDraft = nil
                 navigation.locationSelection = location
             } catch {

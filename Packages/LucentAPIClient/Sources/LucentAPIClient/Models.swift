@@ -149,6 +149,8 @@ extension LucentAPI {
         public var address: Address?
         public var border: [GeoPoint]
         public var crsId: Int?
+        /// Send it as `If-Match` when changing the site.
+        public var etag: String
     }
 
     /// As in lucentBASE, `x` is the latitude and `y` the longitude.
@@ -161,6 +163,8 @@ extension LucentAPI {
         public var z: Double?
         public var crsId: Int?
         public var siteId: Int?
+        /// Send it as `If-Match` when changing the spot.
+        public var etag: String
     }
 
     /// A new point where samples are taken. As in lucentBASE, `x` is the latitude and `y` the longitude.
@@ -184,6 +188,54 @@ extension LucentAPI {
             self.y = y
             self.siteId = siteId
             self.crsId = crsId
+            self.note = note
+        }
+    }
+
+    /// Changes to a spot. Fields left `nil` stay as they are; an empty description removes it.
+    public struct SpotChange: Encodable, Sendable {
+        public var name: String?
+        public var description: String?
+        public var x: Double?
+        public var y: Double?
+        /// `nil`: unchanged; `.some(nil)`: no longer in a site.
+        public var siteId: Int??
+        public var note: String?
+
+        public init(name: String? = nil, description: String? = nil, x: Double? = nil, y: Double? = nil,
+                    siteId: Int?? = nil, note: String? = nil) {
+            self.name = name
+            self.description = description
+            self.x = x
+            self.y = y
+            self.siteId = siteId
+            self.note = note
+        }
+
+        enum CodingKeys: String, CodingKey { case name, description, x, y, siteId, note }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeIfPresent(name, forKey: .name)
+            try container.encodeIfPresent(description, forKey: .description)
+            try container.encodeIfPresent(x, forKey: .x)
+            try container.encodeIfPresent(y, forKey: .y)
+            if let siteId { try container.encode(siteId, forKey: .siteId) }  // null leaves the site
+            try container.encodeIfPresent(note, forKey: .note)
+        }
+    }
+
+    /// Changes to a site. Fields left `nil` stay as they are; a new border replaces the old one.
+    public struct SiteChange: Encodable, Sendable {
+        public var name: String?
+        public var description: String?
+        public var border: [GeoPoint]?
+        public var note: String?
+
+        public init(name: String? = nil, description: String? = nil, border: [GeoPoint]? = nil, note: String? = nil) {
+            self.name = name
+            self.description = description
+            self.border = border
             self.note = note
         }
     }

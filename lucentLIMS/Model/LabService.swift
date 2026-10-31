@@ -46,11 +46,13 @@ struct PersonDraft: Hashable, Sendable {
     }
 }
 
-/// A spot or a site being drawn on the map.
+/// A spot or a site being drawn on the map: a new one, or one being changed.
 struct LocationDraft: Hashable, Sendable {
     enum Kind: Hashable, Sendable { case spot, site }
 
     var kind: Kind
+    /// The spot or site being changed; nil for a new one.
+    var editing: LocationRef?
     var name = ""
     var description = ""
     /// Where the spot is.
@@ -62,6 +64,48 @@ struct LocationDraft: Hashable, Sendable {
 
     /// lucentBASE's limits: a spot's name has at most 50 characters, a site's 20.
     var nameLimit: Int { kind == .spot ? 50 : 20 }
+
+    init(kind: Kind, name: String = "", description: String = "", point: GeoPoint? = nil, border: [GeoPoint] = [],
+         siteID: Int? = nil) {
+        self.kind = kind
+        self.name = name
+        self.description = description
+        self.point = point
+        self.border = border
+        self.siteID = siteID
+    }
+
+    init(editing spot: Spot) {
+        self.init(kind: .spot, name: spot.name, description: spot.description, point: spot.point, siteID: spot.siteID)
+        editing = .spot(spot.id)
+    }
+
+    init(editing site: Site) {
+        self.init(kind: .site, name: site.name, description: site.description, border: site.border)
+        editing = .site(site.id)
+    }
+
+    /// A corner where it fits: at the end while drawing, into the nearest edge when changing a border.
+    mutating func addCorner(_ point: GeoPoint) {
+        guard editing != nil, border.count >= 3 else {
+            border.append(point)
+            return
+        }
+        // Distances on a plane, longitude scaled to the latitude so the nearest edge is the one that looks nearest.
+        let scale = cos(point.latitude * .pi / 180)
+        func distance(_ p: GeoPoint, _ a: GeoPoint, _ b: GeoPoint) -> Double {
+            let (px, py) = (p.longitude * scale, p.latitude), (ax, ay) = (a.longitude * scale, a.latitude)
+            let (bx, by) = (b.longitude * scale, b.latitude)
+            let (dx, dy) = (bx - ax, by - ay)
+            let t = dx == 0 && dy == 0 ? 0 : max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+            return hypot(px - (ax + t * dx), py - (ay + t * dy))
+        }
+        let nearest = border.indices.min { i, j in
+            distance(point, border[i], border[(i + 1) % border.count])
+                < distance(point, border[j], border[(j + 1) % border.count])
+        }!
+        border.insert(point, at: nearest + 1)
+    }
 
     var problem: String? {
         let name = name.trimmingCharacters(in: .whitespaces)
@@ -114,6 +158,10 @@ protocol LabService: Sendable {
     func createSpot(_ draft: LocationDraft) async throws -> Spot
     /// Adds a site by its border (sampler).
     func createSite(_ draft: LocationDraft) async throws -> Site
+    /// Changes what differs from `spot` (sampler).
+    func updateSpot(_ spot: Spot, to draft: LocationDraft) async throws -> Spot
+    /// Changes what differs from `site`, the border included (sampler).
+    func updateSite(_ site: Site, to draft: LocationDraft) async throws -> Site
 }
 
 struct LabServiceError: LocalizedError, Sendable {

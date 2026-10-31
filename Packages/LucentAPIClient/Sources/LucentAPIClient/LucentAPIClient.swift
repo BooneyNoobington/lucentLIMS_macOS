@@ -52,7 +52,7 @@ public struct LucentAPIClient: Sendable {
         ("GET", "/v1/messages"), ("POST", "/v1/messages"), ("POST", "/v1/messages/{message_id}/read"),
         ("GET", "/v1/people/{person_id}"), ("POST", "/v1/people"), ("PATCH", "/v1/people/{person_id}"),
         ("PUT", "/v1/people/{person_id}/roles"), ("GET", "/v1/people/{person_id}/history"), ("GET", "/v1/roles"),
-        ("POST", "/v1/spots"), ("POST", "/v1/sites"),
+        ("POST", "/v1/spots"), ("POST", "/v1/sites"), ("PATCH", "/v1/spots/{spot_id}"), ("PATCH", "/v1/sites/{site_id}"),
     ]
 
     // MARK: Reference data
@@ -168,6 +168,16 @@ public struct LucentAPIClient: Sendable {
     /// `border_crosses_itself`.
     public func createSite(_ site: LucentAPI.NewSite) async throws -> LucentAPI.Site {
         try await send("POST", "/v1/sites", body: site)
+    }
+
+    /// Renames or moves a spot (sampler). Pass its current `etag`; a stale one throws 412.
+    public func updateSpot(id: Int, etag: String, _ change: LucentAPI.SpotChange) async throws -> LucentAPI.Spot {
+        try await send("PATCH", "/v1/spots/\(id)", body: change, ifMatch: etag)
+    }
+
+    /// Renames a site or redraws its border (sampler). Pass its current `etag`; a stale one throws 412.
+    public func updateSite(id: Int, etag: String, _ change: LucentAPI.SiteChange) async throws -> LucentAPI.Site {
+        try await send("PATCH", "/v1/sites/\(id)", body: change, ifMatch: etag)
     }
 
     // MARK: People and roles

@@ -218,6 +218,18 @@ struct DecodingTests {
         #expect(spot.siteId == site.id && spot.x == 49.014)
     }
 
+    @Test func leavingASiteSendsNull() async throws {
+        let server = FakeServer()
+        await server.respond(200, with: "spot-changed")
+        let spot = try await client(server).updateSpot(id: 12, etag: "\"abc\"", .init(y: 8.3301, siteId: .some(nil)))
+        #expect(spot.y == 8.3301 && !spot.etag.isEmpty)
+        let body = try json(await server.last) as NSDictionary
+        #expect(body == ["y": 8.3301, "site_id": NSNull()])
+        #expect(await server.last?.value(forHTTPHeaderField: "If-Match") == "\"abc\"")
+        let unchanged = try LucentAPIClient.encoder.encode(LucentAPI.SpotChange(name: "Pegel"))
+        #expect(String(decoding: unchanged, as: UTF8.self) == #"{"name":"Pegel"}"#)
+    }
+
     @Test func queryParameters() async throws {
         let server = FakeServer()
         await server.respond(200, with: "values")

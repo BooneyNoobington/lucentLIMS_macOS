@@ -41,6 +41,23 @@ struct LocationDrawingTests {
         window.close()
     }
 
+    @Test func editingASiteAndCancelling() async throws {
+        let store = LabStore.demo(userName: "grindel")
+        let navigation = AppNavigation()
+        let site = try #require(store.site(2))
+        navigation.locationSelection = .site(2)
+        navigation.locationDraft = LocationDraft(editing: site)
+        let window = window(store, navigation)
+        await settle(window)
+
+        navigation.locationDraft?.border[0] = GeoPoint(latitude: 48.9992, longitude: 8.4505)  // a dragged corner
+        await settle(window)
+        navigation.locationDraft = nil  // Cancel
+        await settle(window)
+        #expect(store.site(2)?.border == site.border && navigation.locationSelection == .site(2))
+        window.close()
+    }
+
     @Test func savingADrawingSelectsTheNewSite() async throws {
         let store = LabStore.demo(userName: "grindel")
         let navigation = AppNavigation()
