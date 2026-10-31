@@ -57,6 +57,8 @@ final class AppNavigation {
     var collectionStatusFilter: CollectionStatus?
     var showsCollectionInspector = !Platform.isPhone
     var locationSelection: LocationRef?
+    /// A spot or site being drawn on the map.
+    var locationDraft: LocationDraft?
     var isPresentingNewCollection = false
     var personEditor: PersonEditor.Target?
 
@@ -95,7 +97,7 @@ final class AppNavigation {
 extension AppNavigation {
     /// Opens a screen from launch arguments, for screenshots without clicking through, e.g.
     /// `-section locations -location spot:10`, `-section methods -route method:5` or
-    /// `-section people -route person:6 -editPerson 6`.
+    /// `-section people -route person:6 -editPerson 6` or `-section locations -newSite YES`.
     private func applyLaunchArguments(_ defaults: UserDefaults) {
         func reference(_ key: String) -> (kind: Substring, id: Int)? {
             guard let parts = defaults.string(forKey: key)?.split(separator: ":"), parts.count == 2,
@@ -121,6 +123,15 @@ extension AppNavigation {
             }
         }
         isPresentingNewCollection = defaults.bool(forKey: "newCollection")
+        // A drawing in progress, for screenshots: corners around the Rheinhafen in Karlsruhe.
+        if defaults.bool(forKey: "newSite") {
+            locationDraft = LocationDraft(kind: .site, name: "Rheinhafen", border: [
+                GeoPoint(latitude: 49.0160, longitude: 8.3250), GeoPoint(latitude: 49.0163, longitude: 8.3322),
+                GeoPoint(latitude: 49.0118, longitude: 8.3330), GeoPoint(latitude: 49.0121, longitude: 8.3262)])
+        } else if defaults.bool(forKey: "newSpot") {
+            locationDraft = LocationDraft(kind: .spot, name: "Pegel Rheinhafen",
+                                          point: GeoPoint(latitude: 49.0141, longitude: 8.3290))
+        }
         if defaults.bool(forKey: "newPerson") {
             personEditor = .new
         } else if defaults.integer(forKey: "editPerson") > 0 {

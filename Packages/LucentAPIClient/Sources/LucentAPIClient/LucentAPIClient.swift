@@ -52,6 +52,7 @@ public struct LucentAPIClient: Sendable {
         ("GET", "/v1/messages"), ("POST", "/v1/messages"), ("POST", "/v1/messages/{message_id}/read"),
         ("GET", "/v1/people/{person_id}"), ("POST", "/v1/people"), ("PATCH", "/v1/people/{person_id}"),
         ("PUT", "/v1/people/{person_id}/roles"), ("GET", "/v1/people/{person_id}/history"), ("GET", "/v1/roles"),
+        ("POST", "/v1/spots"), ("POST", "/v1/sites"),
     ]
 
     // MARK: Reference data
@@ -154,6 +155,19 @@ public struct LucentAPIClient: Sendable {
         try await send("GET", "/v1/series", query: [
             item("parameter_id", parameterId), item("spot_id", spotId), item("site_id", siteId),
         ])
+    }
+
+    // MARK: Locations
+
+    /// Adds a spot (sampler). Names are unique: 409 `name_taken`.
+    public func createSpot(_ spot: LucentAPI.NewSpot) async throws -> LucentAPI.Spot {
+        try await send("POST", "/v1/spots", body: spot)
+    }
+
+    /// Adds a site by its border (sampler). A border that crosses itself is refused with 422
+    /// `border_crosses_itself`.
+    public func createSite(_ site: LucentAPI.NewSite) async throws -> LucentAPI.Site {
+        try await send("POST", "/v1/sites", body: site)
     }
 
     // MARK: People and roles

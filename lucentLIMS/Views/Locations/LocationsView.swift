@@ -8,6 +8,7 @@ struct LocationsView: View {
     @Environment(AppNavigation.self) private var navigation
     @State private var position = MapCameraPosition.region(LocationsView.karlsruhe)
     @State private var showsInspector = !Platform.isPhone
+    @State private var visibleRegion: MKCoordinateRegion?
 
     static let karlsruhe = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.0135, longitude: 8.3850),
@@ -24,24 +25,34 @@ struct LocationsView: View {
 
     var body: some View {
         @Bindable var navigation = navigation
+        let draft = navigation.locationDraft
 
-        Map(position: $position, selection: $navigation.locationSelection) {
-            ForEach(store.sites) { site in
-                MapPolygon(coordinates: site.border.map(\.coordinate))
-                    .foregroundStyle(Color.accentColor.opacity(navigation.locationSelection == .site(site.id) ? 0.35 : 0.15))
-                    .stroke(Color.accentColor, lineWidth: 2)
-                Marker(site.name, systemImage: "square.dashed", coordinate: site.center.coordinate)
-                    .tint(Color.accentColor)
-                    .tag(LocationRef.site(site.id))
+        MapReader { proxy in
+            Map(position: $position, selection: draft == nil ? $navigation.locationSelection : .constant(nil)) {
+                ForEach(store.sites) { site in
+                    MapPolygon(coordinates: site.border.map(\.coordinate))
+                        .foregroundStyle(Color.accentColor.opacity(navigation.locationSelection == .site(site.id) ? 0.35 : 0.15))
+                        .stroke(Color.accentColor, lineWidth: 2)
+                    Marker(site.name, systemImage: "square.dashed", coordinate: site.center.coordinate)
+                        .tint(Color.accentColor)
+                        .tag(LocationRef.site(site.id))
+                }
+                ForEach(store.spots.filter { $0.point != nil }) { spot in
+                    let matrix = store.primaryMatrix(at: .spot(spot.id))
+                    Marker(spot.name, systemImage: matrix?.systemImage ?? "mappin", coordinate: spot.point!.coordinate)
+                        .tint(matrix?.tint ?? .red)
+                        .tag(LocationRef.spot(spot.id))
+                }
+                if let draft { DraftOnMap(draft: draft) }
             }
-            ForEach(store.spots.filter { $0.point != nil }) { spot in
-                let matrix = store.primaryMatrix(at: .spot(spot.id))
-                Marker(spot.name, systemImage: matrix?.systemImage ?? "mappin", coordinate: spot.point!.coordinate)
-                    .tint(matrix?.tint ?? .red)
-                    .tag(LocationRef.spot(spot.id))
-            }
+            .mapStyle(.standard(elevation: draft == nil ? .realistic : .flat, pointsOfInterest: .excludingAll))
+            .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+                guard navigation.locationDraft != nil, let coordinate = proxy.convert(tap.location, from: .local) else {
+                    return
+                }
+                add(GeoPoint(latitude: coordinate.latitude, longitude: coordinate.longitude))
+            })
         }
-        .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
         .mapControls {
             MapCompass()
             MapScaleView()
@@ -49,12 +60,31 @@ struct LocationsView: View {
             MapZoomStepper()
             #endif
         }
+        .onMapCameraChange { context in visibleRegion = context.region }
+        .overlay(alignment: .top) {
+            if let draft { DrawingHint(draft: draft).padding(.top, 12) }
+        }
         .onChange(of: navigation.locationSelection, initial: true) { _, selection in
             focus(on: selection)
             if selection != nil { showsInspector = true }
         }
+        .onChange(of: draft?.point) { _, point in
+            // A spot inside a site's border belongs to that site.
+            if let point { navigation.locationDraft?.siteID = store.site(containing: point)?.id }
+        }
+        .onAppear {
+            if let draft { showDraft(draft) }
+        }
         .navigationTitle("Locations")
         .toolbar {
+            ToolbarItem {
+                Menu("Add", systemImage: "plus") {
+                    Button("New Spot", systemImage: "mappin.and.ellipse") { startDrawing(.spot) }
+                    Button("New Site", systemImage: "square.dashed") { startDrawing(.site) }
+                }
+                .disabled(!store.can(.sampler) || draft != nil)
+                .help(store.can(.sampler) ? "Add a spot or a site" : "Needs the sampler role")
+            }
             ToolbarItem {
                 Button("Show All", systemImage: "scope") {
                     navigation.locationSelection = nil
@@ -68,7 +98,44 @@ struct LocationsView: View {
         .inspector(isPresented: $showsInspector) {
             LocationInspector()
                 .inspectorColumnWidth(min: 340, ideal: 400, max: 560)
+                #if os(iOS)
+                // On an iPhone the inspector is a sheet; a low one leaves the map free to draw on.
+                .presentationDetents([.fraction(0.35), .medium, .large])
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                #endif
         }
+    }
+
+    private func startDrawing(_ kind: LocationDraft.Kind) {
+        navigation.locationSelection = nil
+        navigation.locationDraft = LocationDraft(kind: kind)
+        showsInspector = true
+        // Drawing works on a flat map, seen from straight above.
+        withAnimation(.smooth(duration: 0.5)) { position = .region(visibleRegion ?? Self.karlsruhe) }
+    }
+
+    private func add(_ point: GeoPoint) {
+        switch navigation.locationDraft?.kind {
+        case .spot: navigation.locationDraft?.point = point
+        case .site: navigation.locationDraft?.border.append(point)
+        case nil: break
+        }
+    }
+
+    private func showDraft(_ draft: LocationDraft) {
+        let points = draft.border + [draft.point].compactMap { $0 }
+        guard !points.isEmpty else { return }
+        let site = Site(id: 0, name: "", description: "", border: points)
+        var region = points.count > 1 ? Self.region(for: site)
+            : MKCoordinateRegion(center: points[0].coordinate, latitudinalMeters: 900, longitudinalMeters: 900)
+        if Platform.isPhone {
+            // The inspector sheet covers the lower third: the drawing goes into the part above it.
+            region.span.latitudeDelta *= 1.4
+            region.span.longitudeDelta *= 1.4
+            region.center.latitude -= region.span.latitudeDelta * 0.2
+        }
+        position = .region(region)
+        showsInspector = true
     }
 
     private func focus(on selection: LocationRef?) {
@@ -91,7 +158,9 @@ private struct LocationInspector: View {
     @Environment(AppNavigation.self) private var navigation
 
     var body: some View {
-        if let selection = navigation.locationSelection {
+        if navigation.locationDraft != nil {
+            LocationEditor()
+        } else if let selection = navigation.locationSelection {
             LocationDetailView(location: selection)
                 .id(selection)
         } else {
@@ -330,5 +399,205 @@ struct SeriesChart: View {
         .chartYScale(domain: .automatic(includesZero: false))
         .chartYAxisLabel(unit)
         .frame(height: 220)
+    }
+}
+
+// MARK: - Drawing
+
+/// The spot or site being drawn, in the colour of work in progress.
+private struct DraftOnMap: MapContent {
+    let draft: LocationDraft
+
+    var body: some MapContent {
+        if draft.kind == .spot, let point = draft.point {
+            Marker(draft.name.isEmpty ? String(localized: "New spot") : draft.name, systemImage: "mappin",
+                   coordinate: point.coordinate)
+                .tint(.orange)
+        }
+        if draft.kind == .site {
+            if draft.border.count >= 3 {
+                MapPolygon(coordinates: draft.border.map(\.coordinate))
+                    .foregroundStyle(Color.orange.opacity(0.2))
+                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            } else if draft.border.count == 2 {
+                MapPolyline(coordinates: draft.border.map(\.coordinate))
+                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            }
+            ForEach(Array(draft.border.enumerated()), id: \.offset) { index, corner in
+                Annotation(String(index + 1), coordinate: corner.coordinate, anchor: .center) {
+                    Text("\(index + 1)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Color.orange, in: Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                }
+                .annotationTitles(.hidden)
+            }
+        }
+    }
+}
+
+/// What to do next, over the map.
+private struct DrawingHint: View {
+    let draft: LocationDraft
+
+    var body: some View {
+        Label(text, systemImage: draft.kind == .spot ? "hand.point.up.left" : "pencil.and.outline")
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+    }
+
+    private var text: String {
+        #if os(macOS)
+        let action = String(localized: "Click")
+        #else
+        let action = String(localized: "Tap")
+        #endif
+        switch draft.kind {
+        case .spot:
+            return draft.point == nil ? String(localized: "\(action) the map where the spot is")
+                : String(localized: "\(action) again to move the spot")
+        case .site:
+            return draft.border.isEmpty ? String(localized: "\(action) the map at each corner of the site")
+                : String(localized: "\(action) the next corner · \(draft.border.count) so far")
+        }
+    }
+}
+
+/// The name and coordinates of the spot or site being drawn.
+private struct LocationEditor: View {
+    @Environment(LabStore.self) private var store
+    @Environment(AppNavigation.self) private var navigation
+    @State private var saving = false
+    @State private var error: String?
+    /// A coordinate typed before the other one: a spot needs both.
+    @State private var typedLatitude: Double?
+    @State private var typedLongitude: Double?
+
+    var body: some View {
+        @Bindable var navigation = navigation
+        if let draft = Binding($navigation.locationDraft) {
+            let kind = draft.wrappedValue.kind
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(kind == .spot ? "New Spot" : "New Site")
+                            .font(.title2.weight(.semibold))
+                        Text(kind == .spot ? "A point where samples are taken." : "An area, drawn by its border.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                if let error {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Name") {
+                    TextField("Name", text: draft.name, prompt: Text(kind == .spot ? "e.g. Pegel Rheinhafen" : "e.g. Rheinhafen"))
+                    TextField("Description", text: draft.description, prompt: Text("Optional, e.g. Am Steg"))
+                }
+
+                switch kind {
+                case .spot:
+                    Section {
+                        TextField("Latitude", value: coordinate(\.latitude, draft: draft),
+                                  format: .number.precision(.fractionLength(0...6)), prompt: Text("e.g. 49.014100"))
+                        TextField("Longitude", value: coordinate(\.longitude, draft: draft),
+                                  format: .number.precision(.fractionLength(0...6)), prompt: Text("e.g. 8.329000"))
+                        Picker("Site", selection: draft.siteID) {
+                            Text("None").tag(Int?.none)
+                            ForEach(store.sites) { Text($0.name).tag(Optional($0.id)) }
+                        }
+                    } header: {
+                        Text("Position")
+                    } footer: {
+                        Text("Place it on the map or type its coordinates (WGS 84). A spot inside a site's border belongs to that site.")
+                    }
+                case .site:
+                    Section {
+                        ForEach(Array(draft.wrappedValue.border.enumerated()), id: \.offset) { index, corner in
+                            LabeledContent("Corner \(index + 1)") {
+                                Text(corner.latitude, format: .number.precision(.fractionLength(5)))
+                                    + Text(", ")
+                                    + Text(corner.longitude, format: .number.precision(.fractionLength(5)))
+                            }
+                            .monospacedDigit()
+                        }
+                        HStack {
+                            Button("Undo Last Corner", systemImage: "arrow.uturn.backward") {
+                                draft.wrappedValue.border.removeLast()
+                            }
+                            .disabled(draft.wrappedValue.border.isEmpty)
+                            Spacer()
+                            Button("Start Over", role: .destructive) { draft.wrappedValue.border.removeAll() }
+                                .disabled(draft.wrappedValue.border.isEmpty)
+                        }
+                        .buttonStyle(.borderless)
+                    } header: {
+                        Text("Border")
+                    } footer: {
+                        Text("Place the corners in order around the area; the last one joins the first.")
+                    }
+                }
+
+                if let problem = draft.wrappedValue.problem {
+                    Section {
+                        Label(problem, systemImage: "info.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Button("Cancel") { navigation.locationDraft = nil }
+                    Spacer()
+                    Button(kind == .spot ? "Add Spot" : "Add Site") { save(draft.wrappedValue) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(saving || draft.wrappedValue.problem != nil || !store.can(.sampler))
+                }
+                .padding(12)
+                .background(.bar)
+            }
+        }
+    }
+
+    /// One coordinate of the spot. A spot appears once both are known.
+    private func coordinate(_ path: WritableKeyPath<GeoPoint, Double>, draft: Binding<LocationDraft>) -> Binding<Double?> {
+        Binding {
+            draft.wrappedValue.point?[keyPath: path] ?? (path == \.latitude ? typedLatitude : typedLongitude)
+        } set: { value in
+            if var point = draft.wrappedValue.point {
+                if let value { point[keyPath: path] = value }
+                draft.wrappedValue.point = point
+                return
+            }
+            if path == \.latitude { typedLatitude = value } else { typedLongitude = value }
+            if let latitude = typedLatitude, let longitude = typedLongitude {
+                draft.wrappedValue.point = GeoPoint(latitude: latitude, longitude: longitude)
+            }
+        }
+    }
+
+    private func save(_ draft: LocationDraft) {
+        saving = true
+        Task {
+            do {
+                let location = try await store.create(draft)
+                navigation.locationDraft = nil
+                navigation.locationSelection = location
+            } catch {
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
     }
 }

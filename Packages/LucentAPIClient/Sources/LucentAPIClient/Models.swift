@@ -119,6 +119,11 @@ extension LucentAPI {
     public struct GeoPoint: Codable, Hashable, Sendable {
         public var latitude: Double
         public var longitude: Double
+
+        public init(latitude: Double, longitude: Double) {
+            self.latitude = latitude
+            self.longitude = longitude
+        }
     }
 
     public struct Address: Codable, Hashable, Sendable {
@@ -156,6 +161,52 @@ extension LucentAPI {
         public var z: Double?
         public var crsId: Int?
         public var siteId: Int?
+    }
+
+    /// A new point where samples are taken. As in lucentBASE, `x` is the latitude and `y` the longitude.
+    public struct NewSpot: Encodable, Sendable {
+        /// Unique among spots, at most 50 characters.
+        public var name: String
+        public var description: String?
+        public var x: Double
+        public var y: Double
+        /// The site the spot lies in, if any.
+        public var siteId: Int?
+        /// Defaults to WGS 84.
+        public var crsId: Int?
+        public var note: String?
+
+        public init(name: String, description: String? = nil, x: Double, y: Double, siteId: Int? = nil,
+                    crsId: Int? = nil, note: String? = nil) {
+            self.name = name
+            self.description = description
+            self.x = x
+            self.y = y
+            self.siteId = siteId
+            self.crsId = crsId
+            self.note = note
+        }
+    }
+
+    /// A new area. Its border's corners come in order, without repeating the first, and must not
+    /// cross each other.
+    public struct NewSite: Encodable, Sendable {
+        /// Unique among sites, at most 20 characters.
+        public var name: String
+        public var description: String?
+        public var border: [GeoPoint]
+        /// Defaults to WGS 84.
+        public var crsId: Int?
+        public var note: String?
+
+        public init(name: String, description: String? = nil, border: [GeoPoint], crsId: Int? = nil,
+                    note: String? = nil) {
+            self.name = name
+            self.description = description
+            self.border = border
+            self.crsId = crsId
+            self.note = note
+        }
     }
 }
 

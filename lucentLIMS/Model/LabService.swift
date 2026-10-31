@@ -46,6 +46,42 @@ struct PersonDraft: Hashable, Sendable {
     }
 }
 
+/// A spot or a site being drawn on the map.
+struct LocationDraft: Hashable, Sendable {
+    enum Kind: Hashable, Sendable { case spot, site }
+
+    var kind: Kind
+    var name = ""
+    var description = ""
+    /// Where the spot is.
+    var point: GeoPoint?
+    /// The site's corners, in order.
+    var border: [GeoPoint] = []
+    /// The site the spot lies in.
+    var siteID: Int?
+
+    /// lucentBASE's limits: a spot's name has at most 50 characters, a site's 20.
+    var nameLimit: Int { kind == .spot ? 50 : 20 }
+
+    var problem: String? {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        switch kind {
+        case .spot where point == nil:
+            return String(localized: "Click the map to place the spot.")
+        case .site where !Border.isLargeEnough(border):
+            return String(localized: "Click the map at least three times to draw the border.")
+        case .site where Border.crossesItself(border):
+            return String(localized: "The border crosses itself. Undo corners until it doesn't.")
+        default:
+            break
+        }
+        if name.isEmpty { return String(localized: "Give it a name.") }
+        if name.count > nameLimit { return String(localized: "The name is longer than \(nameLimit) characters.") }
+        if description.count > 50 { return String(localized: "The description is longer than 50 characters.") }
+        return nil
+    }
+}
+
 /// A registered collection, with its values and raw values as they are now.
 struct Registration: Sendable {
     var collection: LabCollection
@@ -74,6 +110,10 @@ protocol LabService: Sendable {
     func setRoles(_ roles: Set<LabRole>, of person: Person, reason: String?) async throws -> Person
     /// Changes to the person, their roles and their organization, newest first.
     func history(of person: Person) async throws -> [HistoryEntry]
+    /// Adds a spot (sampler).
+    func createSpot(_ draft: LocationDraft) async throws -> Spot
+    /// Adds a site by its border (sampler).
+    func createSite(_ draft: LocationDraft) async throws -> Site
 }
 
 struct LabServiceError: LocalizedError, Sendable {
@@ -87,6 +127,11 @@ struct LabServiceError: LocalizedError, Sendable {
     static let deactivateYourself = LabServiceError(message: String(localized: "Nobody can deactivate themselves."))
     static func linuxUserTaken(_ name: String) -> LabServiceError {
         LabServiceError(message: String(localized: "Another person already signs in as “\(name)”."))
+    }
+    static let borderCrossesItself = LabServiceError(
+        message: String(localized: "The border crosses itself. Draw its corners in order."))
+    static func nameTaken(_ name: String) -> LabServiceError {
+        LabServiceError(message: String(localized: "There already is a location called “\(name)”."))
     }
     static let samplingTimeNotPlanned = LabServiceError(
         message: String(localized: "A sampling time needs an action whose effects include the sampling-time parameter."))

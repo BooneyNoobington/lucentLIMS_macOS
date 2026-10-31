@@ -102,6 +102,28 @@ struct APIIntegrationTests {
         #expect(history.contains { $0.note == "Created: Integrationstest" && $0.created })
     }
 
+    @Test func drawingLocations() async throws {
+        let sampler = try await store("LUCENT_TEST_ANALYST")  // Dorn is a sampler too
+        let suffix = String(UUID().uuidString.prefix(6))
+        let border = [GeoPoint(latitude: 49.016, longitude: 8.325), GeoPoint(latitude: 49.016, longitude: 8.332),
+                      GeoPoint(latitude: 49.012, longitude: 8.332), GeoPoint(latitude: 49.012, longitude: 8.325)]
+        let siteRef = try await sampler.create(LocationDraft(kind: .site, name: "Hafen \(suffix)", border: border))
+        guard case .site(let siteID) = siteRef else { Issue.record("not a site"); return }
+        #expect(sampler.site(siteID)?.border == border)
+
+        let point = GeoPoint(latitude: 49.014, longitude: 8.329)
+        #expect(sampler.site(containing: point)?.id == siteID)
+        let spotRef = try await sampler.create(LocationDraft(kind: .spot, name: "Pegel \(suffix)", point: point,
+                                                             siteID: siteID))
+        guard case .spot(let spotID) = spotRef else { Issue.record("not a spot"); return }
+        #expect(sampler.spot(spotID)?.siteID == siteID)
+
+        // lucentAPI refuses a border that crosses itself, too.
+        let bowtie = [border[0], border[2], border[1], border[3]]
+        #expect(await status { _ = try await sampler.service.createSite(
+            LocationDraft(kind: .site, name: "Schleife \(suffix)", border: bowtie)) } == 422)
+    }
+
     /// The HTTP status a call fails with, or nil if it succeeds.
     func status(_ call: () async throws -> Void) async -> Int? {
         do {

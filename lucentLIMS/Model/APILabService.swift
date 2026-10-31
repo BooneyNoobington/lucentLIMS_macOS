@@ -125,6 +125,21 @@ struct APILabService: LabService {
         }
     }
 
+    func createSpot(_ draft: LocationDraft) async throws -> Spot {
+        guard let point = draft.point else { throw LabServiceError(message: draft.problem ?? "") }
+        return Spot(try await client.createSpot(.init(
+            name: draft.name.trimmingCharacters(in: .whitespaces),
+            description: draft.description.isEmpty ? nil : draft.description,
+            x: point.latitude, y: point.longitude, siteId: draft.siteID)))
+    }
+
+    func createSite(_ draft: LocationDraft) async throws -> Site {
+        Site(try await client.createSite(.init(
+            name: draft.name.trimmingCharacters(in: .whitespaces),
+            description: draft.description.isEmpty ? nil : draft.description,
+            border: draft.border.map { LucentAPI.GeoPoint(latitude: $0.latitude, longitude: $0.longitude) })))
+    }
+
     func setDone(_ done: Bool, task: LabTask) async throws -> LabTask {
         LabTask(try await client.updateTask(id: task.id, etag: task.etag ?? "*", .init(done: done)))
     }

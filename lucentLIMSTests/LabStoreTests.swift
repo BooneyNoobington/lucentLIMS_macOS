@@ -148,6 +148,40 @@ struct LabStoreTests {
         #expect(!makeStore(userName: "xx121").can(.reviewer))
     }
 
+    // MARK: Locations
+
+    static let harbour = [GeoPoint(latitude: 49.016, longitude: 8.325), GeoPoint(latitude: 49.016, longitude: 8.332),
+                          GeoPoint(latitude: 49.012, longitude: 8.332), GeoPoint(latitude: 49.012, longitude: 8.325)]
+
+    @Test func drawingASiteAndASpotInIt() async throws {
+        let store = makeStore()
+        var site = LocationDraft(kind: .site, name: "Rheinhafen", border: Self.harbour)
+        #expect(site.problem == nil)
+        let siteRef = try await store.create(site)
+        let created = try #require(store.sites.first { $0.name == "Rheinhafen" })
+        #expect(siteRef == .site(created.id) && created.border == Self.harbour && created.crsID == 1)
+
+        let inside = GeoPoint(latitude: 49.014, longitude: 8.329)
+        #expect(store.site(containing: inside)?.id == created.id)
+        #expect(store.site(containing: GeoPoint(latitude: 49.02, longitude: 8.329)) == nil)
+        let spot = LocationDraft(kind: .spot, name: "Pegel Hafen", point: inside, siteID: created.id)
+        guard case .spot(let id) = try await store.create(spot) else { Issue.record("not a spot"); return }
+        #expect(store.spot(id)?.siteID == created.id && store.spot(id)?.point == inside)
+
+        site.name = "GWM 12"  // names are unique per kind; a site may share a spot's name
+        try await store.create(site)
+        await #expect(throws: LabServiceError.self) { try await store.create(spot) }
+    }
+
+    @Test func aBorderMustNotCrossItself() {
+        let bowtie = [Self.harbour[0], Self.harbour[2], Self.harbour[1], Self.harbour[3]]
+        #expect(Border.crossesItself(bowtie) && !Border.crossesItself(Self.harbour))
+        #expect(LocationDraft(kind: .site, name: "Schleife", border: bowtie).problem != nil)
+        #expect(LocationDraft(kind: .site, name: "Zwei", border: Array(Self.harbour.prefix(2))).problem != nil)
+        #expect(LocationDraft(kind: .site, name: "Viel zu langer Name für eine Site", border: Self.harbour).problem != nil)
+        #expect(LocationDraft(kind: .spot, name: "Ohne Ort").problem != nil)
+    }
+
     // MARK: People
 
     @Test func grantingReviewerToRipley() async throws {

@@ -19,7 +19,7 @@ The data comes from one of two places:
 | **Dashboard** | Greeting for the logged-in user, key figures, collections per week by matrix, status donut (hover or tap a sector), limit exceedances of the last 30 days, upcoming tasks, inbox |
 | **Collections** | Sortable, searchable table with status filter. The inspector shows a collection's values grouped by action, each with its raw values (limits, uncertainty, repetitions and an accept seal), the actions and where it was sampled. Pending values can be entered there. Context menu: accept all raw values, show on map |
 | **New collection** | Like lucentAndShiny's "Add Collection" dialog: next identifier, matrix, collection class, spot or site, the actions to plan (preset from the matrix's latest collection) and the sampling time |
-| **Locations** | Spots and sites on a map. A selected location shows its position, address and a time series of any parameter measured there, with its limits drawn in. The chart opens on the parameter that exceeded its limits most often |
+| **Locations** | Spots and sites on a map. A selected location shows its position, address and a time series of any parameter measured there, with its limits drawn in. The chart opens on the parameter that exceeded its limits most often. Samplers add spots by clicking the map (or typing coordinates) and sites by clicking their corners; a spot inside a site's border belongs to it |
 | **Methods** | Actions with their effects (parameter, unit, uncertainty, limits, formula), dependencies, versions, documents, devices and people |
 | **Parameters & Units** | Parameters with their limits, units with notations, dimensions, matrices and collection classes |
 | **People** | Everyone by organization, with position, roles and sign-in; people who have left in their own section. A person's page shows their roles and their history from lucentBASE's log. Admins add people and change names, sign-in, organization, roles and whether someone is active, with a reason for the log |
@@ -52,7 +52,7 @@ and raw values.
 Changes go to the API, and the app shows what comes back. Your roles in lucentBASE decide
 what's enabled (the token only says who you are):
 
-- registering needs `sampler`;
+- registering and adding spots and sites need `sampler`;
 - recording raw values needs `analyst`;
 - accepting needs `reviewer`, and never for raw values you measured yourself;
 - managing people and roles and switching devices need `admin`.
@@ -221,6 +221,7 @@ xcrun simctl launch booted com.redhsoft.lucentLIMS -section locations -location 
 - `-location spot:<id>` or `site:<id>` selects a location.
 - `-newCollection YES` opens the dialog.
 - `-newPerson YES` or `-editPerson <id>` opens the person editor.
+- `-newSite YES` or `-newSpot YES` (with `-section locations`) shows a drawing in progress.
 
 The settings can be set the same way, and a debug build takes a token on the command line:
 

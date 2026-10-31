@@ -109,6 +109,30 @@ actor MockLabService: LabService {
         return data.messages[index]
     }
 
+    // MARK: Locations
+
+    func createSpot(_ draft: LocationDraft) throws -> Spot {
+        guard let point = draft.point else { throw LabServiceError(message: draft.problem ?? "") }
+        let name = draft.name.trimmingCharacters(in: .whitespaces)
+        if data.spots.contains(where: { $0.name == name }) { throw LabServiceError.nameTaken(name) }
+        let spot = Spot(id: (data.spots.map(\.id).max() ?? 0) + 1, name: name, description: draft.description,
+                        x: point.latitude, y: point.longitude, crsID: data.crs.first { $0.epsg == 4326 }?.id,
+                        siteID: draft.siteID)
+        data.spots.append(spot)
+        return spot
+    }
+
+    func createSite(_ draft: LocationDraft) throws -> Site {
+        if Border.crossesItself(draft.border) { throw LabServiceError.borderCrossesItself }
+        if let problem = draft.problem { throw LabServiceError(message: problem) }
+        let name = draft.name.trimmingCharacters(in: .whitespaces)
+        if data.sites.contains(where: { $0.name == name }) { throw LabServiceError.nameTaken(name) }
+        let site = Site(id: (data.sites.map(\.id).max() ?? 0) + 1, name: name, description: draft.description,
+                        border: draft.border, crsID: data.crs.first { $0.epsg == 4326 }?.id)
+        data.sites.append(site)
+        return site
+    }
+
     // MARK: People
 
     func createPerson(_ draft: PersonDraft, roles: Set<LabRole>, reason: String?) throws -> Person {

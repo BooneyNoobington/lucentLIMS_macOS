@@ -17,8 +17,6 @@ final class LabStore {
     // Reference data
     let organizations: [Organization]
     let crs: [CRS]
-    let sites: [Site]
-    let spots: [Spot]
     let matrices: [Matrix]
     let collectionClasses: [String]
     let dimensions: [PhysicalDimension]
@@ -37,6 +35,8 @@ final class LabStore {
     var errorMessage: String?
 
     // What the lab changes
+    private(set) var sites: [Site]
+    private(set) var spots: [Spot]
     private(set) var people: [Person]
     /// Who is signed in, and what lucentBASE lets them do.
     private(set) var currentUser: Person
@@ -50,8 +50,8 @@ final class LabStore {
 
     private let organizationsByID: [Int: Organization]
     private var peopleByID: [Int: Person]
-    private let sitesByID: [Int: Site]
-    private let spotsByID: [Int: Spot]
+    private var sitesByID: [Int: Site]
+    private var spotsByID: [Int: Spot]
     private let matricesByID: [Int: Matrix]
     private let dimensionsByID: [Int: PhysicalDimension]
     private let unitsByID: [Int: LabUnit]
@@ -391,6 +391,32 @@ final class LabStore {
     func setRead(_ read: Bool, message: Message) async throws {
         let changed = try await service.setRead(read, message: message)
         if let index = messages.firstIndex(where: { $0.id == changed.id }) { messages[index] = changed }
+    }
+
+    // MARK: Locations
+
+    /// Adds a spot or a site and returns where it is.
+    @discardableResult
+    func create(_ draft: LocationDraft) async throws -> LocationRef {
+        switch draft.kind {
+        case .spot:
+            let spot = try await service.createSpot(draft)
+            spots.append(spot)
+            spots.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            spotsByID[spot.id] = spot
+            return .spot(spot.id)
+        case .site:
+            let site = try await service.createSite(draft)
+            sites.append(site)
+            sites.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            sitesByID[site.id] = site
+            return .site(site.id)
+        }
+    }
+
+    /// The site a point lies in, if any.
+    func site(containing point: GeoPoint) -> Site? {
+        sites.first { $0.contains(point) }
     }
 
     // MARK: People

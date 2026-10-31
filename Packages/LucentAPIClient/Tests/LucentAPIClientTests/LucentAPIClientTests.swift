@@ -203,6 +203,21 @@ struct DecodingTests {
         #expect(body == ["roles": ["analyst", "reviewer"], "note": "Übernimmt die QS"])
     }
 
+    @Test func createSiteSendsTheBorder() async throws {
+        let server = FakeServer()
+        await server.respond(201, with: "site-created")
+        let border = [LucentAPI.GeoPoint(latitude: 49.016, longitude: 8.325),
+                      LucentAPI.GeoPoint(latitude: 49.016, longitude: 8.332),
+                      LucentAPI.GeoPoint(latitude: 49.012, longitude: 8.332)]
+        let site = try await client(server).createSite(.init(name: "Rheinhafen", border: border))
+        #expect(site.name == "Rheinhafen" && site.border.count == 4)
+        let body = try json(await server.last)
+        #expect((body["border"] as? [[String: Double]])?.first == ["latitude": 49.016, "longitude": 8.325])
+        #expect(await server.last?.url?.path == "/v1/sites")
+        let spot = try LucentAPIClient.decoder.decode(LucentAPI.Spot.self, from: fixture("spot-created"))
+        #expect(spot.siteId == site.id && spot.x == 49.014)
+    }
+
     @Test func queryParameters() async throws {
         let server = FakeServer()
         await server.respond(200, with: "values")
