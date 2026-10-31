@@ -96,7 +96,7 @@ final class AppNavigation {
 #if DEBUG
 extension AppNavigation {
     /// Opens a screen from launch arguments, for screenshots without clicking through, e.g.
-    /// `-section locations -location spot:10`, `-section methods -route method:5` or
+    /// `-section locations -location spot:9`, `-section methods -route method:5` or
     /// `-section people -route person:6 -editPerson 6` or `-section locations -newSite YES`.
     private func applyLaunchArguments(_ defaults: UserDefaults) {
         func reference(_ key: String) -> (kind: Substring, id: Int)? {

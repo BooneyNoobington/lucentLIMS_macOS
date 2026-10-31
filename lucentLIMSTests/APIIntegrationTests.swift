@@ -31,7 +31,7 @@ struct APIIntegrationTests {
 
         // Register pH and conductivity of drinking water at Hochbehälter Nord as the analyst.
         let collection = try await analyst.registerCollection(NewCollection(
-            matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [3, 4], sampledAt: nil))
+            matrixID: 3, collectionClass: "spot sample", spotID: 5, siteID: nil, actionIDs: [3, 4], sampledAt: nil))
         #expect(analyst.numbering.sequence(of: collection.name) != nil)
         #expect(analyst.values(of: collection.id).map(\.effectID) == [5, 6])
         let pH = try #require(analyst.values(of: collection.id).first)
@@ -61,7 +61,7 @@ struct APIIntegrationTests {
         let analyst = try await store("LUCENT_TEST_ANALYST")
         let sampledAt = Date(timeIntervalSince1970: (Date.now.timeIntervalSince1970 - 3600).rounded(.down))
         let collection = try await analyst.registerCollection(NewCollection(
-            matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [1, 3],
+            matrixID: 3, collectionClass: "spot sample", spotID: 5, siteID: nil, actionIDs: [1, 3],
             sampledAt: sampledAt))
         #expect(collection.sampledAt == sampledAt)
         #expect(analyst.progress(of: collection) == (1, 3))
@@ -69,7 +69,7 @@ struct APIIntegrationTests {
         // Without the sampling action, there's nowhere to put the time.
         await #expect(throws: LabServiceError.self) {
             try await analyst.registerCollection(NewCollection(
-                matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [3], sampledAt: sampledAt))
+                matrixID: 3, collectionClass: "spot sample", spotID: 5, siteID: nil, actionIDs: [3], sampledAt: sampledAt))
         }
     }
 
@@ -144,6 +144,22 @@ struct APIIntegrationTests {
         } catch {
             return (error as? LucentAPIError)?.status
         }
+    }
+
+    @Test func theBundledDemoPackageIsTheServers() async throws {
+        let token = try #require(ProcessInfo.processInfo.environment["LUCENT_TEST_REVIEWER"])
+        let client = LucentAPIClient(baseURL: try #require(testServer)) { token }
+        let demo = try Data(contentsOf: try #require(Bundle.main.url(forResource: "demo.lucent", withExtension: "json")))
+        // The tests only add entries, so the demo's own are still as the package has them.
+        let plan = try await client.planPackage(demo, yaml: false)
+        #expect(plan.problems.isEmpty && plan.changes.isEmpty && !plan.applied)
+
+        // A method whose effects change needs a new iteration; nothing is applied.
+        var package = try LucentAPIClient.decoder.decode(LucentAPI.Package.self, from: demo)
+        package.actions[2].effects[0].uncertainty = 0.5
+        let refused = try await client.applyPackage(try LucentAPIClient.encoder.encode(package), yaml: false,
+                                                    note: "Integrationstest")
+        #expect(!refused.applied && refused.problems.map(\.path) == ["actions[2].effects"])
     }
 
     @Test func tasksNeedTheCurrentVersion() async throws {

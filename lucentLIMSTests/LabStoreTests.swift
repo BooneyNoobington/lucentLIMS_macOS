@@ -51,7 +51,7 @@ struct LabStoreTests {
     }
 
     /// pH and conductivity on drinking water at Hochbehälter Nord.
-    static let pHAndConductivity = NewCollection(matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil,
+    static let pHAndConductivity = NewCollection(matrixID: 3, collectionClass: "spot sample", spotID: 5, siteID: nil,
                                                  actionIDs: [3, 4], sampledAt: nil)
 
     @Test func everyEffectOfThePlannedActionsIsAValue() async throws {
@@ -132,7 +132,7 @@ struct LabStoreTests {
     @Test func recordingAgainAddsARepetition() async throws {
         let store = makeStore()
         let collection = try await store.registerCollection(NewCollection(
-            matrixID: 2, collectionClass: "spot sample", spotID: 4, siteID: nil, actionIDs: [6], sampledAt: nil))
+            matrixID: 2, collectionClass: "spot sample", spotID: 3, siteID: nil, actionIDs: [6], sampledAt: nil))
         let lead = try #require(store.values(of: collection.id).first { store.effect($0.effectID)?.parameterID == 10 })
         try await store.record(.decimal(12), for: lead)
         try await store.record(.decimal(11.5), for: lead)
@@ -341,7 +341,7 @@ struct LabStoreTests {
     @Test func seriesIsChronologicalAndFlagsExceedances() throws {
         let store = makeStore()
         let nitrate = try #require(store.parameter(7))
-        let series = store.series(at: .spot(10), for: nitrate)
+        let series = store.series(at: .spot(9), for: nitrate)
         #expect(!series.isEmpty)
         #expect(series.map(\.date) == series.map(\.date).sorted())
         #expect(series.allSatisfy { $0.exceeded == ($0.value > 50) })
@@ -351,7 +351,7 @@ struct LabStoreTests {
     @Test func siteIncludesItsSpots() {
         let store = makeStore()
         let atSite = Set(store.collections(at: .site(2)).map(\.id))
-        for spot in [7, 8, 9] {
+        for spot in [6, 7, 8] {
             #expect(Set(store.collections(at: .spot(spot)).map(\.id)).isSubset(of: atSite))
         }
     }

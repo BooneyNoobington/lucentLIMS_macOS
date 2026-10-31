@@ -102,7 +102,12 @@ export TEST_RUNNER_LUCENT_TEST_ANALYST=$(uv run python dev/mint_token.py worf)
 export TEST_RUNNER_LUCENT_TEST_REVIEWER=$(uv run python dev/mint_token.py p47at)
 ```
 
-Then run the `xcodebuild … test` command above from this directory.
+Then run the `xcodebuild … test` command above from this directory. Use a freshly seeded
+server: the tests add people, spots and sites, and a second run finds the first run's harbour
+site too.
+
+The test action starts the app with `-LucentSource demo`, so the tests don't depend on the
+connection you set up in the app, and a Mac build doesn't ask for the Keychain token.
 
 The client package has its own tests; run them in `Packages/LucentAPIClient`:
 
@@ -184,10 +189,17 @@ Not modelled yet: `constant`, `j_value_value`, and the "Compound" option of the 
 
 ### Mock data
 
-[MockData.swift](lucentLIMS/Model/MockData.swift) has the same people, places, actions,
-parameters, documents and thresholds as lucentAPI's demo data, with the same ids. The people
-are lucentAndShiny's (Booney Noobington is the system user, `grindel`). It adds about 100
-collections over twelve weeks around Karlsruhe, generated with a seeded random generator, so
+The demo's master data (people, places, actions, parameters, documents and thresholds) is
+lucentAPI's demo package, bundled as [demo.lucent.json](lucentLIMS/Model/demo.lucent.json), a
+copy of lucentAPI's `examples/responses/package.json`. lucentAPI loads the same data from its
+`demo.lucent.yaml`. [PackageData.swift](lucentLIMS/Model/PackageData.swift) reads a lucent
+package into the app's types. Entries get ids in their order in the package, the same ids an
+import into an empty lucentBASE gives them, and references by name become ids. After a change
+to lucentAPI's demo, copy the file again; the integration tests check that the bundled package
+matches the server's.
+
+The people are lucentAndShiny's (Booney Noobington is the system user, `grindel`).
+[MockData.swift](lucentLIMS/Model/MockData.swift) adds about 100 collections over twelve weeks around Karlsruhe, generated with a seeded random generator, so
 it looks the same on every launch, and relative to the current date, so the dashboard is
 always up to date. It has stories to find: nitrate rising above the limit at GWM 12, lead at
 the tap in Labor 2.14 confirmed by repetitions, traffic exposure at the Messcontainer, and
@@ -211,7 +223,7 @@ Debug builds can open a screen directly, which helps with screenshots and simula
 without clicking:
 
 ```bash
-xcrun simctl launch booted com.redhsoft.lucentLIMS -section locations -location spot:10
+xcrun simctl launch booted com.redhsoft.lucentLIMS -section locations -location spot:9
 ```
 
 - `-section` takes a sidebar item: `dashboard`, `collections`, `locations`, `methods`,
