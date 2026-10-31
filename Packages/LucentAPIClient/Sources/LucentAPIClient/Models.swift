@@ -22,16 +22,87 @@ extension LucentAPI {
         public var id: Int
         public var givenName: String
         public var surname: String
+        /// The account the person signs in with: the token's username.
         public var linuxUser: String?
         public var organizationId: Int?
-        /// From j_person_organization.
+        /// In their organization, from j_person_organization.
         public var position: String?
+        /// Whether the person can sign in. Inactive people stay in the history.
+        public var active: Bool
+        /// What the person may do, from lucentBASE's j_person_role.
+        public var roles: [Role]
+        /// Send it as `If-Match` when changing the person or their roles.
+        public var etag: String
     }
 
-    /// The person behind the token and the roles it grants.
+    /// The person behind the token and their roles.
     public struct Me: Codable, Hashable, Sendable {
         public var person: Person
         public var roles: [Role]
+    }
+
+    public struct RoleInfo: Codable, Hashable, Sendable {
+        public var name: Role
+        public var description: String?
+    }
+
+    public struct NewPerson: Encodable, Sendable {
+        public var givenName: String
+        public var surname: String
+        /// Must be unique.
+        public var linuxUser: String?
+        public var organizationId: Int?
+        /// Needs an organization.
+        public var position: String?
+        public var roles: [Role]
+        public var note: String?
+
+        public init(givenName: String, surname: String, linuxUser: String? = nil, organizationId: Int? = nil,
+                    position: String? = nil, roles: [Role] = [], note: String? = nil) {
+            self.givenName = givenName
+            self.surname = surname
+            self.linuxUser = linuxUser
+            self.organizationId = organizationId
+            self.position = position
+            self.roles = roles
+            self.note = note
+        }
+    }
+
+    /// Fields left `nil` stay as they are.
+    public struct PersonChange: Encodable, Sendable {
+        public var givenName: String?
+        public var surname: String?
+        public var linuxUser: String?
+        public var organizationId: Int?
+        public var position: String?
+        public var active: Bool?
+        public var note: String?
+
+        public init(givenName: String? = nil, surname: String? = nil, linuxUser: String? = nil,
+                    organizationId: Int? = nil, position: String? = nil, active: Bool? = nil, note: String? = nil) {
+            self.givenName = givenName
+            self.surname = surname
+            self.linuxUser = linuxUser
+            self.organizationId = organizationId
+            self.position = position
+            self.active = active
+            self.note = note
+        }
+    }
+
+    /// A change to a person, one of their roles or their organization, from lucentBASE's log.
+    public struct HistoryEntry: Codable, Hashable, Sendable {
+        public enum Modification: String, Codable, Hashable, Sendable { case created, changed }
+        public enum Subject: String, Codable, Hashable, Sendable { case person, role, organization }
+
+        public var t: Date?
+        public var editorId: Int?
+        public var modification: Modification
+        public var subject: Subject
+        public var role: Role?
+        /// What changed and why, as the API wrote it.
+        public var note: String?
     }
 
     /// What clients need to know about this lucentBASE.

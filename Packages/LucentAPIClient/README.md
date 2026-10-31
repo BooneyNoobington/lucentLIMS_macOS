@@ -17,6 +17,11 @@ let collection = try await api.registerCollection(.init(matrixId: 3, collectionC
 let pH = collection.values.first { $0.effectId == 5 }!
 let raw = try await api.recordRawValue(.init(reading: .decimal(7.6)), for: pH.id)
 let accepted = try await api.acceptRawValue(id: raw.id, etag: raw.etag)  // by someone else
+
+// Admins manage people; roles live in lucentBASE, not in the token.
+let ripley = try await api.person(id: 6)
+let reviewer = try await api.setRoles([.analyst, .reviewer], of: ripley.id, etag: ripley.etag,
+                                      note: "Takes over quality assurance")
 ```
 
 - **Types:** they live in the `LucentAPI` namespace (`LucentAPI.Collection`,

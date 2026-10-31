@@ -29,6 +29,7 @@ struct APILabService: LabService {
         async let values = client.allValues(sampledFrom: since)
         async let tasks = client.tasks()
         async let messages = client.messages()
+        async let roles = client.roles()
 
         let loadedConfiguration = try await configuration
         let loadedActions = try await actions
@@ -55,7 +56,10 @@ struct APILabService: LabService {
             rawValues: loadedValues.flatMap(\.rawValues).map(RawValue.init),
             tasks: try await tasks.map(LabTask.init),
             messages: try await messages.map(Message.init),
-            samplingTimeParameterID: loadedConfiguration.samplingTimeParameterId)
+            samplingTimeParameterID: loadedConfiguration.samplingTimeParameterId,
+            roleDescriptions: Dictionary(try await roles.compactMap { info in
+                LabRole(rawValue: info.name.rawValue).map { ($0, info.description ?? "") }
+            }, uniquingKeysWith: { first, _ in first }))
         let caller = try await me
         return LabSnapshot(data: data, currentUserID: caller.person.id,
                            roles: Set(caller.roles.compactMap { LabRole(rawValue: $0.rawValue) }))
@@ -88,6 +92,39 @@ struct APILabService: LabService {
         try await client.acceptCollection(id: collectionID).values.flatMap(\.rawValues).map(RawValue.init)
     }
 
+    func createPerson(_ draft: PersonDraft, roles: Set<LabRole>, reason: String?) async throws -> Person {
+        Person(try await client.createPerson(.init(
+            givenName: draft.givenName, surname: draft.surname, linuxUser: draft.linuxUser.isEmpty ? nil : draft.linuxUser,
+            organizationId: draft.organizationID, position: draft.position.isEmpty ? nil : draft.position,
+            roles: roles.sorted().map(LucentAPI.Role.init), note: reason)))
+    }
+
+    /// Sends only what differs from `person`. lucentAPI can't remove a Linux user, only change it.
+    func updatePerson(_ person: Person, to draft: PersonDraft, reason: String?) async throws -> Person {
+        let before = PersonDraft(person)
+        func changed<T: Equatable>(_ path: KeyPath<PersonDraft, T>) -> T? {
+            draft[keyPath: path] == before[keyPath: path] ? nil : draft[keyPath: path]
+        }
+        let change = LucentAPI.PersonChange(
+            givenName: changed(\.givenName), surname: changed(\.surname),
+            linuxUser: changed(\.linuxUser).flatMap { $0.isEmpty ? nil : $0 },
+            organizationId: changed(\.organizationID) ?? nil, position: changed(\.position), active: changed(\.active),
+            note: reason)
+        return Person(try await client.updatePerson(id: person.id, etag: person.etag ?? "*", change))
+    }
+
+    func setRoles(_ roles: Set<LabRole>, of person: Person, reason: String?) async throws -> Person {
+        Person(try await client.setRoles(roles.sorted().map(LucentAPI.Role.init), of: person.id,
+                                         etag: person.etag ?? "*", note: reason))
+    }
+
+    func history(of person: Person) async throws -> [HistoryEntry] {
+        try await client.history(ofPerson: person.id).enumerated().map { index, entry in
+            HistoryEntry(id: index, t: entry.t, editorID: entry.editorId, created: entry.modification == .created,
+                         subject: HistoryEntry.Subject(entry), note: entry.note ?? "")
+        }
+    }
+
     func setDone(_ done: Bool, task: LabTask) async throws -> LabTask {
         LabTask(try await client.updateTask(id: task.id, etag: task.etag ?? "*", .init(done: done)))
     }
@@ -110,8 +147,23 @@ extension Organization {
 extension Person {
     init(_ p: LucentAPI.Person) {
         self.init(id: p.id, givenName: p.givenName, surname: p.surname, linuxUser: p.linuxUser ?? "",
-                  organizationID: p.organizationId, position: p.position)
+                  organizationID: p.organizationId, position: p.position, active: p.active,
+                  roles: Set(p.roles.compactMap { LabRole(rawValue: $0.rawValue) }), etag: p.etag)
     }
+}
+
+extension HistoryEntry.Subject {
+    init(_ entry: LucentAPI.HistoryEntry) {
+        switch entry.subject {
+        case .person: self = .person
+        case .organization: self = .organization
+        case .role: self = .role(entry.role.flatMap { LabRole(rawValue: $0.rawValue) })
+        }
+    }
+}
+
+extension LucentAPI.Role {
+    init(_ role: LabRole) { self = LucentAPI.Role(rawValue: role.rawValue)! }
 }
 
 extension CRS {

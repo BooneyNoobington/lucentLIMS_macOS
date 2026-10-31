@@ -16,13 +16,37 @@ struct Person: Identifiable, Hashable, Sendable {
     let id: Int
     var givenName: String
     var surname: String
+    /// The account the person signs in with; empty if they don't.
     var linuxUser: String
     var organizationID: Int?
-    /// From `j_person_organization.position`.
+    /// In their organization, from `j_person_organization.position`.
     var position: String?
+    /// Whether they can sign in. People who have left stay in the history.
+    var active = true
+    /// What they may do (`j_person_role`).
+    var roles: Set<LabRole> = []
+    /// lucentAPI's version tag, sent back when changing the person.
+    var etag: String? = nil
 
     var fullName: String { "\(givenName) \(surname)" }
     var initials: String { String([givenName.first, surname.first].compactMap { $0 }) }
+}
+
+/// A change to a person, one of their roles or their organization, from lucentBASE's log.
+struct HistoryEntry: Identifiable, Hashable, Sendable {
+    enum Subject: Hashable, Sendable {
+        case person
+        case role(LabRole?)
+        case organization
+    }
+
+    let id: Int
+    var t: Date?
+    var editorID: Int?
+    var created: Bool
+    var subject: Subject
+    /// What changed and why.
+    var note: String
 }
 
 // MARK: - Locations
@@ -338,4 +362,6 @@ struct LabData: Sendable {
     var messages: [Message]
     /// The parameter whose datetime raw value is a collection's sampling time.
     var samplingTimeParameterID: Int?
+    /// What each role allows, from lucentBASE's `role`.
+    var roleDescriptions: [LabRole: String] = [:]
 }

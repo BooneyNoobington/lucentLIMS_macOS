@@ -49,6 +49,26 @@ extension ValueClass {
     }
 }
 
+extension LabRole {
+    var title: String {
+        switch self {
+        case .sampler: String(localized: "Sampler")
+        case .analyst: String(localized: "Analyst")
+        case .reviewer: String(localized: "Reviewer")
+        case .admin: String(localized: "Admin")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .sampler: "testtube.2"
+        case .analyst: "flask"
+        case .reviewer: "checkmark.seal"
+        case .admin: "key"
+        }
+    }
+}
+
 extension Matrix {
     /// By name, since the ids differ from one lucentBASE to the next.
     var tint: Color {

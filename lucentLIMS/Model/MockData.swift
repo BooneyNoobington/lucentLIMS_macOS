@@ -35,6 +35,13 @@ enum MockData {
     static let system = 1, doe = 2, dorn = 3, simpson = 4, picard = 5, ripley = 6
     static let samplingTime = 1
 
+    static let roleDescriptions: [LabRole: String] = [
+        .sampler: "Registers collections.",
+        .analyst: "Records raw values.",
+        .reviewer: "Accepts and withdraws raw values, except their own.",
+        .admin: "May do everything, including managing people, roles and devices.",
+    ]
+
     static let collectionClasses = ["spot sample", "mixed sample", "collective sample", "time series",
                                     "free measurement"]
 
@@ -56,13 +63,15 @@ enum MockData {
             Organization(id: 6, name: "Aerosol Systems GmbH", shorthand: "Aerosol"),
         ]
 
+        // Who may do what, as in lucentAPI's demo data. Ripley takes over quality assurance, and
+        // Picard asks in the inbox for her to get the reviewer role.
         let people = [
-            Person(id: system, givenName: "Booney", surname: "Noobington", linuxUser: "grindel", organizationID: 1, position: "Administration"),
-            Person(id: doe, givenName: "John", surname: "Doe", linuxUser: "jd", organizationID: 2, position: "Analytik"),
-            Person(id: dorn, givenName: "Michael", surname: "Dorn", linuxUser: "worf", organizationID: 2, position: "Probenahme"),
-            Person(id: simpson, givenName: "Homer", surname: "Simpson", linuxUser: "s7e23", organizationID: 2, position: "Luftmessnetz"),
-            Person(id: picard, givenName: "Jean Luc", surname: "Picard", linuxUser: "p47at", organizationID: 2, position: "Laborleitung"),
-            Person(id: ripley, givenName: "Ellen", surname: "Ripley", linuxUser: "xx121", organizationID: 2, position: "Qualitätssicherung"),
+            Person(id: system, givenName: "Booney", surname: "Noobington", linuxUser: "grindel", organizationID: 1, position: "Administration", roles: [.admin]),
+            Person(id: doe, givenName: "John", surname: "Doe", linuxUser: "jd", organizationID: 2, position: "Analytik", roles: [.analyst]),
+            Person(id: dorn, givenName: "Michael", surname: "Dorn", linuxUser: "worf", organizationID: 2, position: "Probenahme", roles: [.sampler, .analyst]),
+            Person(id: simpson, givenName: "Homer", surname: "Simpson", linuxUser: "s7e23", organizationID: 2, position: "Luftmessnetz", roles: [.sampler, .analyst]),
+            Person(id: picard, givenName: "Jean Luc", surname: "Picard", linuxUser: "p47at", organizationID: 2, position: "Laborleitung", roles: [.reviewer, .admin]),
+            Person(id: ripley, givenName: "Ellen", surname: "Ripley", linuxUser: "xx121", organizationID: 2, position: "Qualitätssicherung", roles: [.analyst]),
         ]
 
         let crs = [CRS(id: 1, epsg: 4326, name: "WGS 84")]
@@ -371,7 +380,7 @@ enum MockData {
             collectionClasses: collectionClasses, dimensions: dimensions, units: units, parameters: parameters,
             devices: devices, documents: documents, actions: actions, effects: effects, thresholds: thresholds,
             coefficients: coefficients, collections: collections, values: values, rawValues: rawValues, tasks: tasks,
-            messages: messages, samplingTimeParameterID: samplingTime)
+            messages: messages, samplingTimeParameterID: samplingTime, roleDescriptions: roleDescriptions)
     }
 
     /// A plausible reading of a parameter at a spot. `progress` runs from 0 (oldest) to 1 (now).

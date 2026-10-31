@@ -50,6 +50,8 @@ public struct LucentAPIClient: Sendable {
         ("POST", "/v1/raw-values/{raw_value_id}/accept"), ("POST", "/v1/raw-values/{raw_value_id}/withdraw"),
         ("GET", "/v1/series"), ("GET", "/v1/tasks"), ("POST", "/v1/tasks"), ("PATCH", "/v1/tasks/{task_id}"),
         ("GET", "/v1/messages"), ("POST", "/v1/messages"), ("POST", "/v1/messages/{message_id}/read"),
+        ("GET", "/v1/people/{person_id}"), ("POST", "/v1/people"), ("PATCH", "/v1/people/{person_id}"),
+        ("PUT", "/v1/people/{person_id}/roles"), ("GET", "/v1/people/{person_id}/history"), ("GET", "/v1/roles"),
     ]
 
     // MARK: Reference data
@@ -154,6 +156,35 @@ public struct LucentAPIClient: Sendable {
         ])
     }
 
+    // MARK: People and roles
+
+    public func person(id: Int) async throws -> LucentAPI.Person { try await send("GET", "/v1/people/\(id)") }
+    public func roles() async throws -> [LucentAPI.RoleInfo] { try await send("GET", "/v1/roles") }
+
+    /// Adds a person (admin). They can sign in once their identity provider account has `linuxUser`
+    /// as username.
+    public func createPerson(_ person: LucentAPI.NewPerson) async throws -> LucentAPI.Person {
+        try await send("POST", "/v1/people", body: person)
+    }
+
+    /// Changes a person (admin). Pass their current `etag`; if someone changed them meanwhile, this
+    /// throws 412.
+    public func updatePerson(id: Int, etag: String, _ change: LucentAPI.PersonChange) async throws -> LucentAPI.Person {
+        try await send("PATCH", "/v1/people/\(id)", body: change, ifMatch: etag)
+    }
+
+    /// Grants and revokes so the person has exactly `roles` (admin). Throws 409 `last_admin` rather
+    /// than leave nobody to administer.
+    public func setRoles(_ roles: [LucentAPI.Role], of personId: Int, etag: String,
+                         note: String? = nil) async throws -> LucentAPI.Person {
+        try await send("PUT", "/v1/people/\(personId)/roles", body: Roles(roles: roles, note: note), ifMatch: etag)
+    }
+
+    /// Changes to the person, their roles and their organization, newest first.
+    public func history(ofPerson id: Int) async throws -> [LucentAPI.HistoryEntry] {
+        try await send("GET", "/v1/people/\(id)/history")
+    }
+
     // MARK: Tasks and messages
 
     public func tasks(onlyMine: Bool = false, open: Bool? = nil) async throws -> [LucentAPI.Task] {
@@ -182,6 +213,7 @@ public struct LucentAPIClient: Sendable {
     // MARK: Plumbing
 
     private struct Note: Encodable { var note: String? }
+    private struct Roles: Encodable { var roles: [LucentAPI.Role]; var note: String? }
 
     private struct ErrorBody: Decodable {
         struct Detail: Decodable { var code: String; var message: String; var requestId: String? }

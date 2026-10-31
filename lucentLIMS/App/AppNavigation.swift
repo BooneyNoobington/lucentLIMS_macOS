@@ -58,6 +58,7 @@ final class AppNavigation {
     var showsCollectionInspector = !Platform.isPhone
     var locationSelection: LocationRef?
     var isPresentingNewCollection = false
+    var personEditor: PersonEditor.Target?
 
     init() {
         #if DEBUG
@@ -93,7 +94,8 @@ final class AppNavigation {
 #if DEBUG
 extension AppNavigation {
     /// Opens a screen from launch arguments, for screenshots without clicking through, e.g.
-    /// `-section locations -location spot:10` or `-section methods -route method:5`.
+    /// `-section locations -location spot:10`, `-section methods -route method:5` or
+    /// `-section people -route person:6 -editPerson 6`.
     private func applyLaunchArguments(_ defaults: UserDefaults) {
         func reference(_ key: String) -> (kind: Substring, id: Int)? {
             guard let parts = defaults.string(forKey: key)?.split(separator: ":"), parts.count == 2,
@@ -119,6 +121,11 @@ extension AppNavigation {
             }
         }
         isPresentingNewCollection = defaults.bool(forKey: "newCollection")
+        if defaults.bool(forKey: "newPerson") {
+            personEditor = .new
+        } else if defaults.integer(forKey: "editPerson") > 0 {
+            personEditor = .edit(defaults.integer(forKey: "editPerson"))
+        }
     }
 }
 #endif

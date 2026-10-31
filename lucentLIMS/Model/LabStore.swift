@@ -16,7 +16,6 @@ final class LabStore {
 
     // Reference data
     let organizations: [Organization]
-    let people: [Person]
     let crs: [CRS]
     let sites: [Site]
     let spots: [Spot]
@@ -31,14 +30,17 @@ final class LabStore {
     let thresholds: [Threshold]
     let coefficients: [Coefficient]
     let samplingTimeParameterID: Int?
-    let currentUser: Person
-    let roles: Set<LabRole>
+    let roleDescriptions: [LabRole: String]
     let service: any LabService
 
     /// The message of the last change that failed, for an alert.
     var errorMessage: String?
 
     // What the lab changes
+    private(set) var people: [Person]
+    /// Who is signed in, and what lucentBASE lets them do.
+    private(set) var currentUser: Person
+    private(set) var roles: Set<LabRole>
     var devices: [Device]
     private(set) var collections: [LabCollection]
     private(set) var valuesByCollection: [Int: [LabValue]]
@@ -47,7 +49,7 @@ final class LabStore {
     var messages: [Message]
 
     private let organizationsByID: [Int: Organization]
-    private let peopleByID: [Int: Person]
+    private var peopleByID: [Int: Person]
     private let sitesByID: [Int: Site]
     private let spotsByID: [Int: Spot]
     private let matricesByID: [Int: Matrix]
@@ -81,6 +83,7 @@ final class LabStore {
         thresholds = data.thresholds
         coefficients = data.coefficients
         samplingTimeParameterID = data.samplingTimeParameterID
+        roleDescriptions = data.roleDescriptions
         devices = data.devices
         collections = data.collections
         valuesByCollection = Dictionary(grouping: data.values, by: \.collectionID)
@@ -388,6 +391,48 @@ final class LabStore {
     func setRead(_ read: Bool, message: Message) async throws {
         let changed = try await service.setRead(read, message: message)
         if let index = messages.firstIndex(where: { $0.id == changed.id }) { messages[index] = changed }
+    }
+
+    // MARK: People
+
+    @discardableResult
+    func createPerson(_ draft: PersonDraft, roles: Set<LabRole>, reason: String?) async throws -> Person {
+        let person = try await service.createPerson(draft, roles: roles, reason: reason)
+        replace(person)
+        return person
+    }
+
+    /// Saves what changed: the person first, then their roles. `reason` goes into lucentBASE's log.
+    @discardableResult
+    func save(_ person: Person, as draft: PersonDraft, roles: Set<LabRole>, reason: String?) async throws -> Person {
+        var current = person
+        if draft != PersonDraft(person) {
+            current = try await service.updatePerson(current, to: draft, reason: reason)
+            replace(current)
+        }
+        if roles != current.roles {
+            current = try await service.setRoles(roles, of: current, reason: reason)
+            replace(current)
+        }
+        return current
+    }
+
+    func history(of person: Person) async throws -> [HistoryEntry] {
+        try await service.history(of: person)
+    }
+
+    private func replace(_ person: Person) {
+        if let index = people.firstIndex(where: { $0.id == person.id }) {
+            people[index] = person
+        } else {
+            people.append(person)
+            people.sort { ($0.surname, $0.givenName, $0.id) < ($1.surname, $1.givenName, $1.id) }
+        }
+        peopleByID[person.id] = person
+        if person.id == currentUser.id {
+            currentUser = person
+            roles = person.roles
+        }
     }
 }
 

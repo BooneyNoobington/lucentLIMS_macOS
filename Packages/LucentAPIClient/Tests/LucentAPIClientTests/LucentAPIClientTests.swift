@@ -56,8 +56,23 @@ struct DecodingTests {
         #expect(devices.allSatisfy { !$0.etag.isEmpty } && devices.contains { $0.number == 2207114 })
         #expect(try decoder.decode([LucentAPI.Task].self, from: fixture("tasks")).isEmpty == false)
         #expect(try decoder.decode([LucentAPI.Message].self, from: fixture("messages")).first?.sentAt != nil)
-        #expect(try decoder.decode(LucentAPI.Me.self, from: fixture("me")).roles == [])
+        #expect(try decoder.decode(LucentAPI.Me.self, from: fixture("me")).roles == [.analyst])
         #expect(try decoder.decode(LucentAPI.Configuration.self, from: fixture("configuration")).samplingTimeParameterId == 1)
+    }
+
+    @Test func peopleRolesAndHistory() throws {
+        let people = try decoder.decode([LucentAPI.Person].self, from: fixture("people"))
+        #expect(people.first { $0.linuxUser == "grindel" }?.roles == [.admin])
+        #expect(people.allSatisfy { $0.active && !$0.etag.isEmpty })
+        let roles = try decoder.decode([LucentAPI.RoleInfo].self, from: fixture("roles"))
+        #expect(roles.map(\.name) == [.sampler, .analyst, .reviewer, .admin])
+        let created = try decoder.decode(LucentAPI.Person.self, from: fixture("person-created"))
+        #expect(created.linuxUser == "ash" && created.roles == [.analyst] && created.position == "Mikrobiologie")
+        let ripley = try decoder.decode(LucentAPI.Person.self, from: fixture("person-roles-set"))
+        #expect(ripley.roles == [.analyst, .reviewer])
+        let history = try decoder.decode([LucentAPI.HistoryEntry].self, from: fixture("person-history"))
+        #expect(history.first?.role == .reviewer && history.first?.note == "Granted reviewer: Übernimmt die QS")
+        #expect(history.last?.subject == .person && history.last?.modification == .created)
     }
 
     @Test func actionsDocumentsAndThresholds() throws {
@@ -173,6 +188,19 @@ struct DecodingTests {
         #expect(request?.value(forHTTPHeaderField: "If-Match") == "\"abc\"")
         let body = try json(request) as NSDictionary
         #expect(body == ["done": true])
+    }
+
+    @Test func setRolesSendsAllRolesAndIfMatch() async throws {
+        let server = FakeServer()
+        await server.respond(200, with: "person-roles-set")
+        let ripley = try await client(server).setRoles([.analyst, .reviewer], of: 6, etag: "\"abc\"",
+                                                       note: "Übernimmt die QS")
+        #expect(ripley.roles == [.analyst, .reviewer])
+        let request = await server.last
+        #expect(request?.httpMethod == "PUT" && request?.url?.path == "/v1/people/6/roles")
+        #expect(request?.value(forHTTPHeaderField: "If-Match") == "\"abc\"")
+        let body = try json(request) as NSDictionary
+        #expect(body == ["roles": ["analyst", "reviewer"], "note": "Übernimmt die QS"])
     }
 
     @Test func queryParameters() async throws {

@@ -140,10 +140,74 @@ struct LabStoreTests {
         #expect(store.exceedances(of: collection).count == 2)
     }
 
-    @Test func demoHasEveryRole() {
+    @Test func demoUserIsAdmin() {
         let store = makeStore()
-        #expect(LabRole.allCases.allSatisfy { store.can($0) })
+        #expect(store.roles == [.admin] && LabRole.allCases.allSatisfy { store.can($0) })
         #expect(store.isDemo)
+        #expect(makeStore(userName: "xx121").roles == [.analyst])
+        #expect(!makeStore(userName: "xx121").can(.reviewer))
+    }
+
+    // MARK: People
+
+    @Test func grantingReviewerToRipley() async throws {
+        let store = makeStore()
+        let ripley = try #require(store.person(MockData.ripley))
+        let saved = try await store.save(ripley, as: PersonDraft(ripley), roles: [.analyst, .reviewer],
+                                         reason: "Übernimmt die QS")
+        #expect(saved.roles == [.analyst, .reviewer] && store.person(MockData.ripley)?.roles == [.analyst, .reviewer])
+        let history = try await store.history(of: saved)
+        #expect(history.first?.note == "Granted reviewer: Übernimmt die QS")
+        #expect(history.first?.subject == .role(.reviewer) && history.first?.editorID == MockData.system)
+    }
+
+    @Test func addingAPerson() async throws {
+        let store = makeStore()
+        var draft = PersonDraft()
+        draft.givenName = "Ash"
+        draft.surname = "Science Officer"
+        draft.linuxUser = "ash"
+        draft.organizationID = 2
+        draft.position = "Mikrobiologie"
+        let ash = try await store.createPerson(draft, roles: [.analyst], reason: nil)
+        #expect(store.people.contains(ash) && ash.active && ash.roles == [.analyst])
+        #expect(try await store.history(of: ash).map(\.note).last == "Created")
+
+        draft.linuxUser = "worf"
+        await #expect(throws: LabServiceError.self) { try await store.createPerson(draft, roles: [], reason: nil) }
+    }
+
+    @Test func theLastAdminStaysAdminAndActive() async throws {
+        let store = makeStore()
+        let picard = try #require(store.person(MockData.picard))
+        try await store.save(picard, as: PersonDraft(picard), roles: [.reviewer], reason: nil)
+        let you = store.currentUser
+        await #expect(throws: LabServiceError.self) {
+            try await store.save(you, as: PersonDraft(you), roles: [], reason: nil)
+        }
+        var inactive = PersonDraft(you)
+        inactive.active = false
+        await #expect(throws: LabServiceError.self) {
+            try await store.save(you, as: inactive, roles: you.roles, reason: nil)
+        }
+        #expect(store.can(.admin))
+    }
+
+    @Test func deactivatingSomeoneElse() async throws {
+        let store = makeStore()
+        let dorn = try #require(store.person(MockData.dorn))
+        var draft = PersonDraft(dorn)
+        draft.active = false
+        let saved = try await store.save(dorn, as: draft, roles: dorn.roles, reason: "Zur Enterprise gewechselt")
+        #expect(!saved.active && store.people.contains { $0.id == MockData.dorn && !$0.active })
+        #expect(try await store.history(of: saved).first?.note == "Deactivated: Zur Enterprise gewechselt")
+    }
+
+    @Test func changingYourOwnRolesChangesWhatYouMay() async throws {
+        let store = makeStore()
+        let you = store.currentUser
+        try await store.save(you, as: PersonDraft(you), roles: [.admin, .reviewer], reason: nil)
+        #expect(store.roles == [.admin, .reviewer] && store.currentUser.roles == [.admin, .reviewer])
     }
 
     func raw(_ reading: Reading) -> RawValue { RawValue(id: 0, valueID: 0, reading: reading, accepted: false) }

@@ -1,26 +1,41 @@
 import Foundation
 
 /// The demo data in memory. It follows the same rules as lucentAPI: the next identifier from
-/// the numbering scheme, a value for every effect of the planned actions, repetitions, and
-/// nobody accepts what they measured themselves.
+/// the numbering scheme, a value for every effect of the planned actions, repetitions, nobody
+/// accepts what they measured themselves, nobody deactivates themselves, and the last admin
+/// stays admin. People changes are logged with notes like lucentAPI writes them.
 actor MockLabService: LabService {
     private var data: LabData
     private let currentUserID: Int
     private let numbering = NumberingScheme.lucent
+    /// lucentBASE's log of people, their roles and organizations.
+    private var log: [(personID: Int, entry: HistoryEntry)]
 
     init(data: LabData, userName: String) {
         self.data = data
         currentUserID = Self.snapshot(of: data, userName: userName).currentUserID
+        // Everyone was entered by the system user before the first collection.
+        let entered = (data.collections.map(\.sampledAt).min() ?? .now).addingTimeInterval(-30 * 86_400)
+        var log: [(personID: Int, entry: HistoryEntry)] = []
+        for person in data.people {
+            let subjects = [HistoryEntry.Subject.person, .organization] + person.roles.sorted().map { .role($0) }
+            for subject in subjects {
+                log.append((person.id, HistoryEntry(id: log.count + 1, t: entered, editorID: MockData.system,
+                                                    created: true, subject: subject, note: "Demo data")))
+            }
+        }
+        self.log = log
     }
 
     /// The snapshot without awaiting the actor, for building a store synchronously.
     nonisolated static func snapshot(of data: LabData, userName: String) -> LabSnapshot {
         let user = data.people.first { $0.linuxUser == userName } ?? data.people[0]
-        return LabSnapshot(data: data, currentUserID: user.id, roles: Set(LabRole.allCases))
+        return LabSnapshot(data: data, currentUserID: user.id, roles: user.roles)
     }
 
     func load() -> LabSnapshot {
-        LabSnapshot(data: data, currentUserID: currentUserID, roles: Set(LabRole.allCases))
+        let user = data.people.first { $0.id == currentUserID }
+        return LabSnapshot(data: data, currentUserID: currentUserID, roles: user?.roles ?? [])
     }
 
     func register(_ new: NewCollection) throws -> Registration {
@@ -92,5 +107,90 @@ actor MockLabService: LabService {
         guard let index = data.messages.firstIndex(where: { $0.id == message.id }) else { return message }
         data.messages[index].read = read
         return data.messages[index]
+    }
+
+    // MARK: People
+
+    func createPerson(_ draft: PersonDraft, roles: Set<LabRole>, reason: String?) throws -> Person {
+        try requireFree(draft.linuxUser)
+        let person = Person(
+            id: (data.people.map(\.id).max() ?? 0) + 1, givenName: draft.givenName, surname: draft.surname,
+            linuxUser: draft.linuxUser, organizationID: draft.organizationID,
+            position: draft.position.isEmpty ? nil : draft.position, roles: roles)
+        data.people.append(person)
+        record(person.id, .person, created: true, note("Created", reason))
+        if person.organizationID != nil { record(person.id, .organization, created: true, note("Joined the organization", reason)) }
+        for role in roles.sorted() { record(person.id, .role(role), created: true, note("Granted \(role.rawValue)", reason)) }
+        return person
+    }
+
+    func updatePerson(_ person: Person, to draft: PersonDraft, reason: String?) throws -> Person {
+        guard let index = data.people.firstIndex(where: { $0.id == person.id }) else { return person }
+        var current = data.people[index]
+        if draft.linuxUser != current.linuxUser { try requireFree(draft.linuxUser, except: person.id) }
+        if !draft.active && current.active {
+            if person.id == currentUserID { throw LabServiceError.deactivateYourself }
+            if activeAdmins == [person.id] { throw LabServiceError.lastAdmin }
+        }
+        var said: [String] = []
+        if draft.givenName != current.givenName { said.append("given name") }
+        if draft.surname != current.surname { said.append("surname") }
+        if draft.linuxUser != current.linuxUser { said.append("Linux user") }
+        if draft.organizationID != current.organizationID { said.append("organization") }
+        var what: [String] = draft.active == current.active ? [] : [draft.active ? "Reactivated" : "Deactivated"]
+        if !said.isEmpty { what.append("Changed " + said.joined(separator: ", ")) }
+        if !what.isEmpty { record(person.id, .person, created: false, note(what.joined(separator: "; "), reason)) }
+        let position = draft.position.isEmpty ? nil : draft.position
+        if position != current.position || draft.organizationID != current.organizationID {
+            record(person.id, .organization, created: false, note("Changed position", reason))
+        }
+        current.givenName = draft.givenName
+        current.surname = draft.surname
+        current.linuxUser = draft.linuxUser
+        current.organizationID = draft.organizationID
+        current.position = position
+        current.active = draft.active
+        data.people[index] = current
+        return current
+    }
+
+    func setRoles(_ roles: Set<LabRole>, of person: Person, reason: String?) throws -> Person {
+        guard let index = data.people.firstIndex(where: { $0.id == person.id }) else { return person }
+        let current = data.people[index].roles
+        if current.contains(.admin) && !roles.contains(.admin) && activeAdmins == [person.id] {
+            throw LabServiceError.lastAdmin
+        }
+        for role in LabRole.allCases where roles.contains(role) != current.contains(role) {
+            let what = roles.contains(role) ? "Granted \(role.rawValue)" : "Revoked \(role.rawValue)"
+            record(person.id, .role(role), created: false, note(what, reason))
+        }
+        data.people[index].roles = roles
+        return data.people[index]
+    }
+
+    func history(of person: Person) -> [HistoryEntry] {
+        log.filter { $0.personID == person.id }.map(\.entry)
+            .sorted { ($0.t ?? .distantPast, $0.id) > ($1.t ?? .distantPast, $1.id) }
+    }
+
+    private var activeAdmins: Set<Int> {
+        Set(data.people.filter { $0.active && $0.roles.contains(.admin) }.map(\.id))
+    }
+
+    private func requireFree(_ linuxUser: String, except id: Int? = nil) throws {
+        guard !linuxUser.isEmpty else { return }
+        if data.people.contains(where: { $0.linuxUser == linuxUser && $0.id != id }) {
+            throw LabServiceError.linuxUserTaken(linuxUser)
+        }
+    }
+
+    private func note(_ what: String, _ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else { return what }
+        return "\(what): \(reason)"
+    }
+
+    private func record(_ personID: Int, _ subject: HistoryEntry.Subject, created: Bool, _ note: String) {
+        log.append((personID, HistoryEntry(id: log.count + 1, t: .now, editorID: currentUserID, created: created,
+                                           subject: subject, note: note)))
     }
 }

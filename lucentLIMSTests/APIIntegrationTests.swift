@@ -7,8 +7,10 @@ import Testing
 /// environment variables are set (xcodebuild passes TEST_RUNNER_<name> on as <name>):
 ///
 /// - LUCENT_TEST_SERVER: e.g. http://localhost:8765
-/// - LUCENT_TEST_ANALYST: a token of a sampler and analyst (dev/mint_token.py worf sampler analyst)
-/// - LUCENT_TEST_REVIEWER: a token of a reviewer (dev/mint_token.py xx121 reviewer)
+/// - LUCENT_TEST_ANALYST: a token of Dorn, a sampler and analyst (dev/mint_token.py worf)
+/// - LUCENT_TEST_REVIEWER: a token of Picard, a reviewer and admin (dev/mint_token.py p47at)
+///
+/// The roles are the demo data's: lucentBASE grants them, the tokens only say who is calling.
 private let testServer = ProcessInfo.processInfo.environment["LUCENT_TEST_SERVER"].flatMap(URL.init(string:))
 
 @MainActor
@@ -69,6 +71,35 @@ struct APIIntegrationTests {
             try await analyst.registerCollection(NewCollection(
                 matrixID: 3, collectionClass: "spot sample", spotID: 6, siteID: nil, actionIDs: [3], sampledAt: sampledAt))
         }
+    }
+
+    @Test func managingPeople() async throws {
+        let admin = try await store("LUCENT_TEST_REVIEWER")  // Picard is admin too
+        #expect(admin.can(.admin) && admin.roleDescriptions.count == 4)
+
+        var draft = PersonDraft()
+        draft.givenName = "Ash"
+        draft.surname = "Test \(Int.random(in: 1000...9999))"
+        draft.linuxUser = "ash-\(UUID().uuidString.prefix(8).lowercased())"
+        draft.organizationID = 2
+        draft.position = "Mikrobiologie"
+        let ash = try await admin.createPerson(draft, roles: [.analyst], reason: "Integrationstest")
+        #expect(ash.roles == [.analyst] && ash.position == "Mikrobiologie" && ash.etag != nil)
+
+        let promoted = try await admin.save(ash, as: PersonDraft(ash), roles: [.analyst, .reviewer], reason: "QS")
+        #expect(promoted.roles == [.analyst, .reviewer])
+        // The ETag changed; the old copy is refused.
+        #expect(await status { _ = try await admin.service.setRoles([], of: ash, reason: nil) } == 412)
+
+        var gone = PersonDraft(promoted)
+        gone.active = false
+        let deactivated = try await admin.save(promoted, as: gone, roles: promoted.roles, reason: "Testende")
+        #expect(!deactivated.active)
+        // lucentBASE logs to the second, so the order of these quick changes isn't certain.
+        let history = try await admin.history(of: deactivated)
+        #expect(history.contains { $0.note == "Deactivated: Testende" && $0.subject == .person })
+        #expect(history.contains { $0.note == "Granted reviewer: QS" && $0.subject == .role(.reviewer) })
+        #expect(history.contains { $0.note == "Created: Integrationstest" && $0.created })
     }
 
     /// The HTTP status a call fails with, or nil if it succeeds.

@@ -22,7 +22,8 @@ The data comes from one of two places:
 | **Locations** | Spots and sites on a map. A selected location shows its position, address and a time series of any parameter measured there, with its limits drawn in. The chart opens on the parameter that exceeded its limits most often |
 | **Methods** | Actions with their effects (parameter, unit, uncertainty, limits, formula), dependencies, versions, documents, devices and people |
 | **Parameters & Units** | Parameters with their limits, units with notations, dimensions, matrices and collection classes |
-| **People, Devices, Tasks, Documents** | Organizations and positions, devices (switch them on and off), tasks by due date, documents with acceptance state, SHA-256 and the limits they set |
+| **People** | Everyone by organization, with position, roles and sign-in; people who have left in their own section. A person's page shows their roles and their history from lucentBASE's log. Admins add people and change names, sign-in, organization, roles and whether someone is active, with a reason for the log |
+| **Devices, Tasks, Documents** | Devices (switch them on and off), tasks by due date, documents with acceptance state, SHA-256 and the limits they set |
 
 Pages link to each other: a person in a method, a method in a collection, a document in a
 method and so on. On the Mac there are menu commands: **File → New Collection…** (⇧⌘N) and a **Go**
@@ -44,17 +45,19 @@ then sign in in one of two ways:
   lucentAPI's README walks through it for Keycloak. "Sign In" opens the provider's login page.
   The tokens are kept in the Keychain and renewed with the refresh token.
 - **Access token**, for development: paste a token, e.g. from lucentAPI's
-  `uv run python dev/mint_token.py grindel admin`.
+  `uv run python dev/mint_token.py grindel`.
 
 The app loads the reference data and the collections of the last 26 weeks with their values
 and raw values.
-Changes go to the API, and the app shows what comes back. The roles in the token decide what's
-enabled:
+Changes go to the API, and the app shows what comes back. Your roles in lucentBASE decide
+what's enabled (the token only says who you are):
 
 - registering needs `sampler`;
 - recording raw values needs `analyst`;
 - accepting needs `reviewer`, and never for raw values you measured yourself;
-- switching devices needs `admin`.
+- managing people and roles and switching devices need `admin`.
+
+Nobody can deactivate themselves, and the last active admin keeps the admin role.
 
 If the API refuses a change, for example because someone else changed the record in the
 meantime (412), an alert says why.
@@ -88,14 +91,15 @@ export TEST_RUNNER_LUCENT_TEST_SERVER=http://localhost:8765
 ```
 
 Run the next two commands in the lucentAPI directory, so the tokens come from its
-`dev/mint_token.py`:
+`dev/mint_token.py`. The demo data makes Dorn (`worf`) a sampler and analyst and Picard
+(`p47at`) a reviewer and admin:
 
 ```bash
-export TEST_RUNNER_LUCENT_TEST_ANALYST=$(uv run python dev/mint_token.py worf sampler analyst)
+export TEST_RUNNER_LUCENT_TEST_ANALYST=$(uv run python dev/mint_token.py worf)
 ```
 
 ```bash
-export TEST_RUNNER_LUCENT_TEST_REVIEWER=$(uv run python dev/mint_token.py xx121 reviewer)
+export TEST_RUNNER_LUCENT_TEST_REVIEWER=$(uv run python dev/mint_token.py p47at)
 ```
 
 Then run the `xcodebuild … test` command above from this directory.
@@ -132,7 +136,7 @@ The layers can be taken apart:
 - **`LabStore`:** gets its data from a `LabService` and sends changes there, then replaces its
   copy with what comes back.
 - **`MockLabService`:** the demo data. It follows the API's rules: identifiers, repetitions,
-  four-eyes.
+  four-eyes, the last admin, and history notes for people.
 - **`APILabService`:** maps the client package's types onto the app's.
 - **`LucentAPIClient`:** knows nothing about the app, so other Swift programs can use it.
 
@@ -156,7 +160,9 @@ Foundation or SwiftUI:
 | `unit`, `unit_notation` | `LabUnit` with `notations` |
 | `dimension` | `PhysicalDimension` |
 | `site`, `spot`, `crs`, `v_address` | `Site`, `Spot`, `CRS`, `Address` |
-| `person`, `organization`, `j_person_organization` | `Person` (with `position`), `Organization` |
+| `person`, `organization`, `j_person_organization` | `Person` (with `position` and `active`), `Organization` |
+| `role`, `j_person_role` | `LabRole`, `Person.roles` |
+| `l_person`, `l_j_person_role`, `l_j_person_organization` | `HistoryEntry` |
 | `task`, `message` | `LabTask`, `Message` |
 
 As in lucentBASE, `spot.x` is the latitude and `spot.y` the longitude.
@@ -184,10 +190,12 @@ are lucentAndShiny's (Booney Noobington is the system user, `grindel`). It adds 
 collections over twelve weeks around Karlsruhe, generated with a seeded random generator, so
 it looks the same on every launch, and relative to the current date, so the dashboard is
 always up to date. It has stories to find: nitrate rising above the limit at GWM 12, lead at
-the tap in Labor 2.14 confirmed by repetitions, traffic exposure at the Messcontainer.
+the tap in Labor 2.14 confirmed by repetitions, traffic exposure at the Messcontainer, and
+Picard asking in the inbox for Ellen Ripley to get the reviewer role.
 
 The logged-in user is the person whose `linux_user` matches the macOS user name, as in
-lucentAndShiny. If none matches, it's the first person.
+lucentAndShiny. If none matches, it's the first person. Their roles are the demo data's:
+`grindel` is admin.
 
 ## Collection identifiers
 
@@ -212,6 +220,7 @@ xcrun simctl launch booted com.redhsoft.lucentLIMS -section locations -location 
 - `-collection <id>` selects a collection.
 - `-location spot:<id>` or `site:<id>` selects a location.
 - `-newCollection YES` opens the dialog.
+- `-newPerson YES` or `-editPerson <id>` opens the person editor.
 
 The settings can be set the same way, and a debug build takes a token on the command line:
 

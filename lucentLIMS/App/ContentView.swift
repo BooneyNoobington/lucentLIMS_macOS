@@ -68,6 +68,11 @@ struct ContentView: View {
                 .environment(store)
                 .environment(navigation)
         }
+        .sheet(item: $navigation.personEditor) { target in
+            PersonEditor(target: target, store: store)
+                .environment(store)
+                .environment(navigation)
+        }
     }
 
     @ViewBuilder
