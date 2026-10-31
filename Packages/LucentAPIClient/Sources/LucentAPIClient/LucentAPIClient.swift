@@ -53,6 +53,7 @@ public struct LucentAPIClient: Sendable {
         ("GET", "/v1/people/{person_id}"), ("POST", "/v1/people"), ("PATCH", "/v1/people/{person_id}"),
         ("PUT", "/v1/people/{person_id}/roles"), ("GET", "/v1/people/{person_id}/history"), ("GET", "/v1/roles"),
         ("POST", "/v1/spots"), ("POST", "/v1/sites"), ("PATCH", "/v1/spots/{spot_id}"), ("PATCH", "/v1/sites/{site_id}"),
+        ("GET", "/v1/package"),
     ]
 
     // MARK: Reference data
@@ -209,6 +210,13 @@ public struct LucentAPIClient: Sendable {
         try await send("GET", "/v1/people/\(id)/history")
     }
 
+    // MARK: Packages
+
+    /// The master data as a lucent package, as the server writes it: JSON, or YAML for people.
+    public func exportPackage(yaml: Bool = false) async throws -> Data {
+        try await data("GET", "/v1/package", query: [item("format", yaml ? "yaml" : "json")])
+    }
+
     // MARK: Tasks and messages
 
     public func tasks(onlyMine: Bool = false, open: Bool? = nil) async throws -> [LucentAPI.Task] {
@@ -290,6 +298,15 @@ public struct LucentAPIClient: Sendable {
         _ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
         ifMatch: String? = nil, authorized: Bool = true
     ) async throws -> Response {
+        let data = try await data(method, path, query: query, body: body, ifMatch: ifMatch, authorized: authorized)
+        return try Self.decoder.decode(Response.self, from: data)
+    }
+
+    /// The answer's body, or the API's error.
+    private func data(
+        _ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
+        ifMatch: String? = nil, authorized: Bool = true
+    ) async throws -> Data {
         var components = URLComponents(url: baseURL.appending(path: String(path.dropFirst())),
                                        resolvingAgainstBaseURL: false)!
         let query = query.filter { $0.value != nil }
@@ -318,6 +335,6 @@ public struct LucentAPIClient: Sendable {
             throw LucentAPIError(status: status, code: "http_\(status)",
                                  message: HTTPURLResponse.localizedString(forStatusCode: status))
         }
-        return try Self.decoder.decode(Response.self, from: data)
+        return data
     }
 }
