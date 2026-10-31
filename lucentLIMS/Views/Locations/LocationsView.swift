@@ -158,8 +158,8 @@ private struct LocationInspector: View {
     @Environment(AppNavigation.self) private var navigation
 
     var body: some View {
-        if navigation.locationDraft != nil {
-            LocationEditor()
+        if let draft = navigation.locationDraft {
+            LocationEditor(draft: draft)
         } else if let selection = navigation.locationSelection {
             LocationDetailView(location: selection)
                 .id(selection)
@@ -477,10 +477,26 @@ private struct LocationEditor: View {
     /// A coordinate typed before the other one: a spot needs both.
     @State private var typedLatitude: Double?
     @State private var typedLongitude: Double?
+    /// The drawing as last seen, shown while the editor goes away.
+    @State private var lastDraft: LocationDraft
+
+    init(draft: LocationDraft) {
+        _lastDraft = State(initialValue: draft)
+    }
+
+    /// The drawing, without trapping once it has ended: after Cancel or Save set it to nil, SwiftUI
+    /// updates the fields once more, and a text field may still write its last words.
+    private var draft: Binding<LocationDraft> {
+        Binding {
+            navigation.locationDraft ?? lastDraft
+        } set: { value in
+            if navigation.locationDraft != nil { navigation.locationDraft = value }
+        }
+    }
 
     var body: some View {
-        @Bindable var navigation = navigation
-        if let draft = Binding($navigation.locationDraft) {
+        let draft = self.draft
+        Group {
             let kind = draft.wrappedValue.kind
             Form {
                 Section {
@@ -567,6 +583,9 @@ private struct LocationEditor: View {
                 .padding(12)
                 .background(.bar)
             }
+        }
+        .onChange(of: navigation.locationDraft) { _, current in
+            if let current { lastDraft = current }
         }
     }
 
