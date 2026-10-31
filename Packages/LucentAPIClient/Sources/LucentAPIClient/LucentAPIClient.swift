@@ -53,7 +53,7 @@ public struct LucentAPIClient: Sendable {
         ("GET", "/v1/people/{person_id}"), ("POST", "/v1/people"), ("PATCH", "/v1/people/{person_id}"),
         ("PUT", "/v1/people/{person_id}/roles"), ("GET", "/v1/people/{person_id}/history"), ("GET", "/v1/roles"),
         ("POST", "/v1/spots"), ("POST", "/v1/sites"), ("PATCH", "/v1/spots/{spot_id}"), ("PATCH", "/v1/sites/{site_id}"),
-        ("GET", "/v1/package"),
+        ("GET", "/v1/package"), ("POST", "/v1/package/plan"), ("POST", "/v1/package/apply"),
     ]
 
     // MARK: Reference data
@@ -217,6 +217,27 @@ public struct LucentAPIClient: Sendable {
         try await data("GET", "/v1/package", query: [item("format", yaml ? "yaml" : "json")])
     }
 
+    /// The master data as a lucent package, decoded.
+    public func package() async throws -> LucentAPI.Package { try await send("GET", "/v1/package") }
+
+    /// What importing a package (JSON or YAML, as written) would change, and its problems. Changes nothing.
+    public func planPackage(_ package: Data, yaml: Bool, note: String? = nil) async throws -> LucentAPI.PackagePlan {
+        try await send("POST", "/v1/package/plan", query: [item("note", note)],
+                       raw: (package, yaml ? "application/yaml" : "application/json"))
+    }
+
+    /// Imports a package (admin): all of it, or nothing. With problems the plan comes back with
+    /// `applied` false instead of an error, so its problems can be shown.
+    public func applyPackage(_ package: Data, yaml: Bool, note: String? = nil) async throws -> LucentAPI.PackagePlan {
+        let (body, status) = try await exchange("POST", "/v1/package/apply", query: [item("note", note)],
+                                                raw: (package, yaml ? "application/yaml" : "application/json"))
+        if status == 422, let plan = try? Self.decoder.decode(LucentAPI.PackagePlan.self, from: body) {
+            return plan
+        }
+        try Self.check(status: status, body: body)
+        return try Self.decoder.decode(LucentAPI.PackagePlan.self, from: body)
+    }
+
     // MARK: Tasks and messages
 
     public func tasks(onlyMine: Bool = false, open: Bool? = nil) async throws -> [LucentAPI.Task] {
@@ -296,17 +317,40 @@ public struct LucentAPIClient: Sendable {
 
     private func send<Response: Decodable>(
         _ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
-        ifMatch: String? = nil, authorized: Bool = true
+        raw: (Data, String)? = nil, ifMatch: String? = nil, authorized: Bool = true
     ) async throws -> Response {
-        let data = try await data(method, path, query: query, body: body, ifMatch: ifMatch, authorized: authorized)
+        let data = try await data(method, path, query: query, body: body, raw: raw, ifMatch: ifMatch,
+                                  authorized: authorized)
         return try Self.decoder.decode(Response.self, from: data)
     }
 
     /// The answer's body, or the API's error.
     private func data(
         _ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
-        ifMatch: String? = nil, authorized: Bool = true
+        raw: (Data, String)? = nil, ifMatch: String? = nil, authorized: Bool = true
     ) async throws -> Data {
+        let (data, status) = try await exchange(method, path, query: query, body: body, raw: raw, ifMatch: ifMatch,
+                                                authorized: authorized)
+        try Self.check(status: status, body: data)
+        return data
+    }
+
+    /// Throws the API's error for a status outside 2xx.
+    private static func check(status: Int, body: Data) throws {
+        guard !(200..<300).contains(status) else { return }
+        if let error = try? decoder.decode(ErrorBody.self, from: body) {
+            throw LucentAPIError(status: status, code: error.error.code, message: error.error.message,
+                                 requestId: error.error.requestId)
+        }
+        throw LucentAPIError(status: status, code: "http_\(status)",
+                             message: HTTPURLResponse.localizedString(forStatusCode: status))
+    }
+
+    /// One request: a JSON `body`, or a `raw` one with its content type. Returns the body and status.
+    private func exchange(
+        _ method: String, _ path: String, query: [URLQueryItem] = [], body: (any Encodable)? = nil,
+        raw: (Data, String)? = nil, ifMatch: String? = nil, authorized: Bool = true
+    ) async throws -> (Data, Int) {
         var components = URLComponents(url: baseURL.appending(path: String(path.dropFirst())),
                                        resolvingAgainstBaseURL: false)!
         let query = query.filter { $0.value != nil }
@@ -323,18 +367,12 @@ public struct LucentAPIClient: Sendable {
         if let body {
             request.httpBody = try Self.encoder.encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        } else if let (data, contentType) = raw {
+            request.httpBody = data
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
 
         let (data, response) = try await transport(request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            if let body = try? Self.decoder.decode(ErrorBody.self, from: data) {
-                throw LucentAPIError(status: status, code: body.error.code, message: body.error.message,
-                                     requestId: body.error.requestId)
-            }
-            throw LucentAPIError(status: status, code: "http_\(status)",
-                                 message: HTTPURLResponse.localizedString(forStatusCode: status))
-        }
-        return data
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 }

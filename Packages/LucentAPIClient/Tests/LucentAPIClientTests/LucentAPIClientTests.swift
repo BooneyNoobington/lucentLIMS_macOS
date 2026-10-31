@@ -7,16 +7,23 @@ actor FakeServer {
     var requests: [URLRequest] = []
     var status = 200
     var responseFile = "collection"
+    var responseBody: Data?
 
     func respond(_ status: Int, with file: String) {
         self.status = status
         responseFile = file
+        responseBody = nil
+    }
+
+    func respond(_ status: Int, body: String) {
+        self.status = status
+        responseBody = Data(body.utf8)
     }
 
     func handle(_ request: URLRequest) throws -> (Data, URLResponse) {
         requests.append(request)
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-        return (try fixture(responseFile), response)
+        return (try responseBody ?? fixture(responseFile), response)
     }
 
     var last: URLRequest? { requests.last }
@@ -44,7 +51,7 @@ struct DecodingTests {
 
     @Test func referenceData() throws {
         let people = try decoder.decode([LucentAPI.Person].self, from: fixture("people"))
-        #expect(people.count == 6 && people.contains { $0.linuxUser == "grindel" && $0.givenName == "System" })
+        #expect(people.count == 6 && people.contains { $0.linuxUser == "grindel" && $0.givenName == "Booney" })
         #expect(try decoder.decode([LucentAPI.Organization].self, from: fixture("organizations")).count == 6)
         #expect(try decoder.decode([LucentAPI.ReferenceSystem].self, from: fixture("crs")).first?.epsg == 4326)
         #expect(try decoder.decode([LucentAPI.Matrix].self, from: fixture("matrices")).count == 4)
@@ -228,6 +235,26 @@ struct DecodingTests {
         #expect(await server.last?.value(forHTTPHeaderField: "If-Match") == "\"abc\"")
         let unchanged = try LucentAPIClient.encoder.encode(LucentAPI.SpotChange(name: "Pegel"))
         #expect(String(decoding: unchanged, as: UTF8.self) == #"{"name":"Pegel"}"#)
+    }
+
+    @Test func thePackageDecodes() throws {
+        let package = try LucentAPIClient.decoder.decode(LucentAPI.Package.self, from: fixture("package"))
+        #expect(package.format == "lucent/1" && package.people.first?.linuxUser == "grindel")
+        let anions = try #require(package.actions.first { $0.name == "Anionen (IC)" })
+        #expect(anions.iteration == "2025-02-01" && anions.effects.map(\.parameter) == ["Nitrat", "Chlorid", "Sulfat"])
+        #expect(anions.dependsOn.contains { $0.dependencyClass == "possibility" })
+        #expect(package.devices.first?.operator_ == "Umweltlabor Lucent")
+        #expect(package.spots.first?.name == "Test 1" && package.thresholds.count == 18)
+    }
+
+    @Test func applyingAPackageWithProblemsReturnsThePlan() async throws {
+        let server = FakeServer()
+        await server.respond(422, body: #"{"applied": false, "summary": {}, "changes": [], "problems": [{"path": "parameters[0].unit", "line": 3, "message": "There is no unit 'mg/dl'."}]}"#)
+        let plan = try await client(server).applyPackage(Data("format: lucent/1".utf8), yaml: true)
+        #expect(!plan.applied && plan.problems.first?.line == 3)
+        let request = await server.last
+        #expect(request?.value(forHTTPHeaderField: "Content-Type") == "application/yaml")
+        #expect(request.flatMap(\.httpBody).map { String(decoding: $0, as: UTF8.self) } == "format: lucent/1")
     }
 
     @Test func queryParameters() async throws {

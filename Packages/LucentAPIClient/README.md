@@ -12,7 +12,7 @@ let api = LucentAPIClient(baseURL: URL(string: "https://lims.example.org")!) {
 }
 
 let open = try await api.collections(status: .inReview)
-let collection = try await api.registerCollection(.init(matrixId: 3, collectionClass: "spot sample", spotId: 6,
+let collection = try await api.registerCollection(.init(matrixId: 3, collectionClass: "spot sample", spotId: 5,
                                                         actionIds: [1, 3], sampledAt: .now))
 let pH = collection.values.first { $0.effectId == 5 }!
 let raw = try await api.recordRawValue(.init(reading: .decimal(7.6)), for: pH.id)
@@ -33,6 +33,10 @@ let reviewer = try await api.setRoles([.analyst, .reviewer], of: ripley.id, etag
   stable `code` (`four_eyes`, `precondition_failed`, `unknown_person`, …).
 - **Lost updates:** records that can change carry an `etag`. Pass it back, and if someone
   changed the record meanwhile the call fails with 412.
+- **Packages:** `package()` and `exportPackage(yaml:)` give the master data as a lucent
+  package. `planPackage(_:yaml:)` says what importing one (JSON or YAML, as written) would
+  change. `applyPackage(_:yaml:)` imports it (admins only), all or nothing; if anything is in
+  the way it returns the plan with its problems and applies nothing.
 - **Paging:** `allCollections(sampledFrom:)` and `allValues(sampledFrom:)` follow the pages
   for you.
 - **Transport:** `URLSession.shared` by default. Pass your own `transport` closure to stub the

@@ -559,6 +559,202 @@ extension LucentAPI {
     }
 }
 
+// MARK: - Packages
+
+extension LucentAPI {
+    /// A lucentBASE's master data, as lucentAPI's JSON export writes it. Entries refer to each other
+    /// by their natural keys: names, an action's name and iteration, a device's name and number, a
+    /// person's linux user.
+    public struct Package: Codable, Hashable, Sendable {
+        public var format: String
+        public var description: String?
+        public var organizations: [Organization]
+        public var people: [Person]
+        public var referenceSystems: [ReferenceSystem]
+        public var dimensions: [Named]
+        public var units: [Unit]
+        public var matrices: [Named]
+        public var parameters: [Parameter]
+        public var devices: [Device]
+        public var documents: [Document]
+        public var sites: [Site]
+        public var spots: [Spot]
+        public var actions: [Action]
+        public var thresholds: [Threshold]
+        public var coefficients: [Coefficient]
+
+        public struct Organization: Codable, Hashable, Sendable {
+            public var name: String
+            public var shorthand: String?
+            public var relation: String?
+        }
+
+        public struct Person: Codable, Hashable, Sendable {
+            public var givenName: String
+            public var surname: String
+            public var linuxUser: String?
+            public var organization: String?
+            public var position: String?
+            public var active: Bool
+            public var roles: [Role]
+        }
+
+        public struct ReferenceSystem: Codable, Hashable, Sendable {
+            public var name: String
+            public var epsg: Int
+            public var description: String?
+        }
+
+        /// A dimension or a matrix.
+        public struct Named: Codable, Hashable, Sendable {
+            public var name: String
+            public var description: String?
+        }
+
+        public struct Unit: Codable, Hashable, Sendable {
+            public var name: String
+            public var description: String?
+            public var dimension: String?
+            public var notations: [String]
+        }
+
+        public struct Parameter: Codable, Hashable, Sendable {
+            public var name: String
+            public var description: String?
+            /// A unit's name or notation.
+            public var unit: String?
+            public var valueClass: ValueClass
+        }
+
+        public struct Device: Codable, Hashable, Sendable {
+            public var name: String
+            public var number: Int
+            public var manufacturer: String?
+            public var operator_: String?
+            public var active: Bool
+
+            enum CodingKeys: String, CodingKey { case name, number, manufacturer, operator_ = "operator", active }
+        }
+
+        public struct Document: Codable, Hashable, Sendable {
+            public var name: String
+            public var uri: String?
+            public var filePath: String?
+            public var accepted: Bool
+            public var sha256: String?
+        }
+
+        public struct Site: Codable, Hashable, Sendable {
+            public var name: String
+            public var description: String?
+            public var address: Address?
+            public var border: [GeoPoint]
+            public var referenceSystem: String?
+        }
+
+        public struct Address: Codable, Hashable, Sendable {
+            public var street: String
+            public var houseNumber: Int
+            public var addition: String?
+            public var zip: String
+            public var district: String
+            public var city: String
+        }
+
+        public struct Spot: Codable, Hashable, Sendable {
+            public var name: String
+            public var description: String?
+            public var latitude: Double?
+            public var longitude: Double?
+            public var referenceSystem: String?
+            public var site: String?
+        }
+
+        public struct Action: Codable, Hashable, Sendable {
+            public var name: String
+            /// The version, as written: a date such as 2024-03-01.
+            public var iteration: String
+            public var active: Bool
+            public var description: String?
+            public var documents: [String]
+            public var devices: [DeviceRef]
+            public var people: [Assignment]
+            public var dependsOn: [Dependency]
+            public var effects: [Effect]
+        }
+
+        public struct DeviceRef: Codable, Hashable, Sendable {
+            public var name: String
+            public var number: Int
+        }
+
+        public struct Assignment: Codable, Hashable, Sendable {
+            /// A linux user, or given name and surname.
+            public var person: String
+            public var role: String
+        }
+
+        public struct Dependency: Codable, Hashable, Sendable {
+            public var action: String
+            public var iteration: String
+            public var dependencyClass: String
+            public var description: String?
+        }
+
+        public struct Effect: Codable, Hashable, Sendable {
+            public var parameter: String
+            public var uncertainty: Double?
+            public var uncertaintyClass: String?
+            public var uncertaintyUnit: String?
+            public var calculation: String?
+        }
+
+        public struct Threshold: Codable, Hashable, Sendable {
+            public var parameter: String
+            public var document: String
+            public var lower: Double?
+            public var upper: Double?
+            public var description: String?
+        }
+
+        public struct EffectRef: Codable, Hashable, Sendable {
+            public var action: String
+            public var iteration: String
+            public var parameter: String
+        }
+
+        public struct Coefficient: Codable, Hashable, Sendable {
+            public var effects: [EffectRef]
+            public var description: String?
+        }
+    }
+
+    /// What importing a package changes (or would), and what stands in its way.
+    public struct PackagePlan: Codable, Hashable, Sendable {
+        public var applied: Bool
+        /// Per section: how many entries are created, updated or unchanged.
+        public var summary: [String: [String: Int]]
+        public var changes: [PackageChange]
+        public var problems: [PackageProblem]
+    }
+
+    public struct PackageChange: Codable, Hashable, Sendable {
+        public var section: String
+        public var key: String
+        /// create or update
+        public var change: String
+        public var fields: [String]
+    }
+
+    public struct PackageProblem: Codable, Hashable, Sendable {
+        /// e.g. actions[3].effects[0].parameter
+        public var path: String
+        /// In a YAML package.
+        public var line: Int?
+        public var message: String
+    }
+}
+
 // MARK: - Management
 
 extension LucentAPI {
