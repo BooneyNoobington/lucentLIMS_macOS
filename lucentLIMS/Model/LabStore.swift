@@ -255,6 +255,43 @@ final class LabStore {
         return numbering.identifier(for: last + 1) ?? "¯\\_(ツ)_/¯"
     }
 
+    // MARK: Planning
+
+    /// The combinations of active actions planned for collections of a matrix, most often first
+    /// (then most recent first).
+    func actionSets(for matrixID: Int) -> [ActionSet] {
+        var sets: [[Int]: (count: Int, last: Date)] = [:]
+        for collection in collections where collection.matrixID == matrixID {
+            let ids = plannedActions(of: collection).filter(\.active).map(\.id)
+            guard !ids.isEmpty else { continue }
+            let seen = sets[ids]
+            sets[ids] = ((seen?.count ?? 0) + 1, max(seen?.last ?? .distantPast, collection.sampledAt))
+        }
+        return sets.map { ActionSet(actionIDs: $0.key, count: $0.value.count, last: $0.value.last) }
+            .sorted { ($0.count, $0.last) > ($1.count, $1.last) }
+    }
+
+    /// Active actions by how often they were planned for a matrix, most often first; actions never
+    /// planned for it are left out.
+    func usualActions(for matrixID: Int) -> [LabAction] {
+        var counts: [Int: Int] = [:]
+        for set in actionSets(for: matrixID) {
+            for id in set.actionIDs { counts[id, default: 0] += set.count }
+        }
+        return actions.filter { counts[$0.id] != nil }
+            .sorted { (counts[$0.id]!, -$0.id) > (counts[$1.id]!, -$1.id) }
+    }
+
+    /// Whether an action matches a search: by its name, description, parameters or documents.
+    func action(_ action: LabAction, matches search: String) -> Bool {
+        let search = search.trimmingCharacters(in: .whitespaces)
+        guard !search.isEmpty else { return true }
+        let words = [action.name, action.description]
+            + effects(of: action).compactMap { parameter($0.parameterID)?.name }
+            + action.documentIDs.compactMap { document($0)?.name }
+        return words.contains { $0.localizedStandardContains(search) }
+    }
+
     // MARK: Locations
 
     func collections(at location: LocationRef) -> [LabCollection] {
@@ -524,6 +561,15 @@ struct WeeklyCount: Identifiable, Hashable {
     let count: Int
 
     var id: String { "\(week.timeIntervalSince1970)-\(matrix)" }
+}
+
+/// Actions planned together for a collection, how often and when last.
+struct ActionSet: Identifiable, Hashable {
+    let actionIDs: [Int]
+    let count: Int
+    let last: Date
+
+    var id: [Int] { actionIDs }
 }
 
 struct Exceedance: Identifiable, Hashable {

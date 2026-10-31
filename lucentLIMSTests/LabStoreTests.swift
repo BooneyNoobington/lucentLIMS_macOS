@@ -148,6 +148,28 @@ struct LabStoreTests {
         #expect(!makeStore(userName: "xx121").can(.reviewer))
     }
 
+    // MARK: Planning
+
+    @Test func actionSetsAreRankedByHowOftenTheyWerePlanned() throws {
+        let store = makeStore()
+        let drinkingWater = store.actionSets(for: 3)  // Trinkwasser: routine weekly, full every four weeks
+        let routine = try #require(drinkingWater.first)
+        #expect(routine.actionIDs == [1, 2, 3, 4, 7])
+        #expect(drinkingWater.dropFirst().contains { $0.actionIDs == [1, 2, 3, 4, 5, 6, 7] })
+        #expect(drinkingWater.map(\.count) == drinkingWater.map(\.count).sorted(by: >))
+        #expect(drinkingWater.map(\.count).reduce(0, +) == store.collections.filter { $0.matrixID == 3 }.count)
+        #expect(store.usualActions(for: 1).map(\.id) == [8, 9])  // air: dust and NO2 only
+    }
+
+    @Test func actionsAreFoundByParameterAndDocument() throws {
+        let store = makeStore()
+        let anions = try #require(store.action(5))
+        #expect(store.action(anions, matches: "Nitrat"))  // a parameter
+        #expect(store.action(anions, matches: "IC-3"))  // a document, the device manual
+        #expect(store.action(anions, matches: ""))
+        #expect(!store.action(anions, matches: "Feinstaub"))
+    }
+
     // MARK: Locations
 
     static let harbour = [GeoPoint(latitude: 49.016, longitude: 8.325), GeoPoint(latitude: 49.016, longitude: 8.332),

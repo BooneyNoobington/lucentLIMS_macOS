@@ -15,6 +15,7 @@ struct NewCollectionSheet: View {
     @State private var spotID: Int
     @State private var siteID: Int
     @State private var actionIDs: Set<Int>
+    @State private var showsActionPicker = false
     @State private var sampledAt = Date.now
     @State private var saving = false
     @State private var error: String?
@@ -28,11 +29,9 @@ struct NewCollectionSheet: View {
         _actionIDs = State(initialValue: Self.usualActions(for: matrixID, in: store))
     }
 
-    /// The actions planned for the latest collection of a matrix, as a starting point.
+    /// The combination of actions planned most often for a matrix, as a starting point.
     private static func usualActions(for matrixID: Int, in store: LabStore) -> Set<Int> {
-        guard let latest = store.collections.filter({ $0.matrixID == matrixID }).max(by: { $0.sampledAt < $1.sampledAt })
-        else { return [] }
-        return Set(store.plannedActions(of: latest).filter(\.active).map(\.id))
+        Set(store.actionSets(for: matrixID).first?.actionIDs ?? [])
     }
 
     private var plansSamplingTime: Bool {
@@ -93,20 +92,45 @@ struct NewCollectionSheet: View {
                 }
 
                 Section {
-                    ForEach(store.actions.filter(\.active)) { action in
-                        Toggle(isOn: Binding(
-                            get: { actionIDs.contains(action.id) },
-                            set: { if $0 { actionIDs.insert(action.id) } else { actionIDs.remove(action.id) } })
-                        ) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(action.name)
-                                Text(store.effects(of: action).compactMap { store.parameter($0.parameterID)?.name }
-                                    .formatted(.list(type: .and)))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                    if actionIDs.isEmpty {
+                        Text("No actions planned yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(store.actions.filter { actionIDs.contains($0.id) }) { action in
+                        HStack {
+                            ActionLabel(action: action)
+                            Spacer()
+                            Button("Remove \(action.name)", systemImage: "minus.circle") { actionIDs.remove(action.id) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.red)
                         }
                     }
+                    HStack {
+                        Button("Add Actions…", systemImage: "plus.circle") { showsActionPicker = true }
+                            #if os(macOS)
+                            .popover(isPresented: $showsActionPicker, arrowEdge: .bottom) {
+                                ActionPicker(selection: $actionIDs, matrixID: matrixID)
+                                    .environment(store)
+                            }
+                            #endif
+                        Spacer()
+                        let sets = store.actionSets(for: matrixID)
+                        Menu("Plan Like…") {
+                            ForEach(sets.prefix(5)) { set in
+                                Button {
+                                    actionIDs = Set(set.actionIDs)
+                                } label: {
+                                    Text(set.actionIDs.compactMap { store.action($0)?.name }.formatted(.list(type: .and)))
+                                    Text("^[\(set.count) collection](inflect: true), last \(set.last.formatted(date: .abbreviated, time: .omitted))")
+                                }
+                            }
+                        }
+                        .fixedSize()
+                        .disabled(sets.isEmpty)
+                        .help("Plan the actions of earlier collections of this matrix")
+                    }
+                    .buttonStyle(.borderless)
                 } header: {
                     Text("Planned actions")
                 } footer: {
@@ -131,6 +155,21 @@ struct NewCollectionSheet: View {
             }
             .formStyle(.grouped)
             .navigationTitle("New Collection")
+            #if os(iOS)
+            // A sheet on the form, not a popover on the button: it presents even while the row is out of view.
+            .sheet(isPresented: $showsActionPicker) {
+                ActionPicker(selection: $actionIDs, matrixID: matrixID)
+                    .environment(store)
+            }
+            #endif
+            #if DEBUG
+            .task {
+                // -pickActions YES opens the picker, once the sheet has settled.
+                guard UserDefaults.standard.bool(forKey: "pickActions") else { return }
+                try? await Task.sleep(for: .seconds(1))
+                showsActionPicker = true
+            }
+            #endif
             .onChange(of: matrixID) { _, matrixID in
                 actionIDs = Self.usualActions(for: matrixID, in: store)
             }
@@ -164,5 +203,92 @@ struct NewCollectionSheet: View {
         #if os(macOS)
         .frame(minWidth: 480, minHeight: 640)
         #endif
+    }
+}
+
+/// An action's name with the parameters it yields.
+private struct ActionLabel: View {
+    @Environment(LabStore.self) private var store
+    let action: LabAction
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(action.name)
+            Text(store.effects(of: action).compactMap { store.parameter($0.parameterID)?.name }
+                .formatted(.list(type: .and)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}
+
+/// Picks actions to plan: searchable, with the ones often planned for the matrix first.
+private struct ActionPicker: View {
+    @Environment(LabStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selection: Set<Int>
+    let matrixID: Int
+    @State private var search = ""
+
+    var body: some View {
+        let usual = store.usualActions(for: matrixID).filter { $0.active && store.action($0, matches: search) }
+        let others = store.actions.filter { action in
+            action.active && !usual.contains(action) && store.action(action, matches: search)
+        }
+        NavigationStack {
+            List {
+                if !usual.isEmpty {
+                    Section("Often planned for \(store.matrix(matrixID)?.name ?? "this matrix")") {
+                        ForEach(usual) { row($0) }
+                    }
+                }
+                if !others.isEmpty {
+                    Section(usual.isEmpty ? "Actions" : "Other actions") {
+                        ForEach(others) { row($0) }
+                    }
+                }
+                if usual.isEmpty && others.isEmpty {
+                    Text("No action matches “\(search)”.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                TextField("Search", text: $search, prompt: Text("Action, parameter or document"))
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+            }
+            .navigationTitle("Add Actions")
+            .inlineNavigationTitle()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 380, height: 460)
+        #else
+        .presentationDetents([.medium, .large])
+        #endif
+    }
+
+    private func row(_ action: LabAction) -> some View {
+        let chosen = selection.contains(action.id)
+        return Button {
+            if chosen { selection.remove(action.id) } else { selection.insert(action.id) }
+        } label: {
+            HStack {
+                ActionLabel(action: action)
+                Spacer()
+                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(chosen ? Color.accentColor : .secondary)
+                    .font(.title3)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
